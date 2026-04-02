@@ -25,12 +25,18 @@ router = APIRouter(prefix="/api/collect", tags=["SQL采集"])
 # ========== 数据模型 ==========
 
 class SQLObjectResponse(BaseModel):
-    """SQL对象响应"""
+    """SQL对象响应 - Oracle性能指标"""
     sql_id: Optional[str] = Field(None, description="SQL标识符")
     sql_text: str = Field(..., description="SQL文本")
+    schema: Optional[str] = Field(None, description="Schema/Parsing Schema Name")
     source: str = Field(..., description="来源: auto_collect, sql_id_query, file_upload")
     execution_stats: Optional[dict] = Field(None, description="执行统计")
     has_execution_plan: bool = Field(False, description="是否有执行计划")
+    # Oracle特定性能指标
+    cpu_pct: Optional[float] = Field(None, description="CPU Time %")
+    elapsed_pct: Optional[float] = Field(None, description="Elapsed %")
+    elapsed_sec: Optional[float] = Field(None, description="Elapsed Time (Sec)")
+    elapsed_per_exec_sec: Optional[float] = Field(None, description="Elapsed Time/exec (Sec)")
 
     class Config:
         from_attributes = True
@@ -63,6 +69,9 @@ class SQLUploadRequest(BaseModel):
 def sql_object_to_response(obj: SQLObject, truncate_sql: bool = True) -> SQLObjectResponse:
     """将SQLObject转换为响应模型"""
     stats = None
+    cpu_pct = elapsed_pct = elapsed_sec = elapsed_per_exec_sec = None
+    schema = None
+
     if obj.execution_stats:
         stats = {
             "sql_id": obj.execution_stats.sql_id,
@@ -73,6 +82,12 @@ def sql_object_to_response(obj: SQLObject, truncate_sql: bool = True) -> SQLObje
             "disk_reads": obj.execution_stats.disk_reads,
             "rows_processed": obj.execution_stats.rows_processed,
         }
+        # Oracle性能指标
+        schema = obj.execution_stats.schema
+        cpu_pct = obj.execution_stats.cpu_pct
+        elapsed_pct = obj.execution_stats.elapsed_pct
+        elapsed_sec = obj.execution_stats.elapsed_sec
+        elapsed_per_exec_sec = obj.execution_stats.elapsed_per_exec_sec
 
     # 根据 truncate_sql 参数决定是否截断
     if truncate_sql and len(obj.sql_text) > 500:
@@ -83,9 +98,14 @@ def sql_object_to_response(obj: SQLObject, truncate_sql: bool = True) -> SQLObje
     return SQLObjectResponse(
         sql_id=obj.sql_id,
         sql_text=sql_text,
+        schema=schema,
         source=obj.source,
         execution_stats=stats,
-        has_execution_plan=obj.execution_plan is not None
+        has_execution_plan=obj.execution_plan is not None,
+        cpu_pct=cpu_pct,
+        elapsed_pct=elapsed_pct,
+        elapsed_sec=elapsed_sec,
+        elapsed_per_exec_sec=elapsed_per_exec_sec
     )
 
 
@@ -155,6 +175,7 @@ async def get_sql_by_id(request: SQLIdQueryRequest):
         if request.include_plan and result.sql_id:
             result.execution_plan = collector.get_execution_plan(result.sql_id)
 
+        # 返回完整 SQL，不截断
         return sql_object_to_response(result, truncate_sql=False)
 
     except HTTPException:

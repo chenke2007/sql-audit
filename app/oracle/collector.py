@@ -20,15 +20,21 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class SQLExecutionStats:
-    """SQL执行统计信息"""
+    """SQL执行统计信息 - Oracle特定字段"""
     sql_id: str
+    schema: str  # parsing_schema_name
     executions: int
     cpu_time_ms: float
     elapsed_time_ms: float
-    buffer_gets: int
-    disk_reads: int
+    buffer_gets: int  # Logical Reads
+    disk_reads: int  # Physical Reads
     rows_processed: int
     last_active_time: Optional[datetime] = None
+    # 新增Oracle性能指标
+    cpu_pct: float = 0.0  # CPU Time %
+    elapsed_pct: float = 0.0  # Elapsed %
+    elapsed_sec: float = 0.0  # Elapsed Time (Sec)
+    elapsed_per_exec_sec: float = 0.0  # Elapsed Time/exec (Sec)
 
 
 @dataclass
@@ -88,17 +94,39 @@ class SQLCollector:
         if exclude_system:
             # 排除系统用户的SQL和系统内部SQL
             sql = """
+            WITH total_stats AS (
+                SELECT SUM(cpu_time) as total_cpu, SUM(elapsed_time) as total_elapsed
+                FROM v$sql
+                WHERE parsing_schema_name NOT IN (
+                    'SYS', 'SYSTEM', 'DBSNMP', 'SYSMAN', 'OUTLN', 'MGMT_VIEW',
+                    'MDSYS', 'ORDSYS', 'EXFSYS', 'WMSYS', 'APPQOSSYS', 'XDB',
+                    'ANONYMOUS', 'XS$NULL', 'ORDDATA', 'ORDPLUGINS', 'SI_INFORMTN_SCHEMA',
+                    'OLAPSYS', 'OWBSYS', 'OWBSYS_AUDIT', 'APEX_PUBLIC_USER',
+                    'APEX_030200', 'FLOWS_FILES', 'SQLTXPLAIN', 'SQLTXADMIN'
+                )
+                AND sql_text NOT LIKE '%dbms_%'
+                AND sql_text NOT LIKE '%DBMS_%'
+                AND sql_text NOT LIKE '%sys.%'
+                AND sql_text NOT LIKE '%SYS.%'
+                AND command_type != 47
+            )
             SELECT
                 s.sql_id,
                 s.sql_text,
+                s.parsing_schema_name as schema,
                 s.executions,
                 s.cpu_time / 1000 as cpu_time_ms,
                 s.elapsed_time / 1000 as elapsed_time_ms,
                 s.buffer_gets,
                 s.disk_reads,
                 s.rows_processed,
-                s.last_active_time
+                s.last_active_time,
+                CASE WHEN t.total_cpu > 0 THEN ROUND(s.cpu_time * 100.0 / t.total_cpu, 1) ELSE 0 END as cpu_pct,
+                CASE WHEN t.total_elapsed > 0 THEN ROUND(s.elapsed_time * 100.0 / t.total_elapsed, 1) ELSE 0 END as elapsed_pct,
+                ROUND(s.elapsed_time / 1000000, 2) as elapsed_sec,
+                CASE WHEN s.executions > 0 THEN ROUND(s.elapsed_time / s.executions / 1000000, 3) ELSE 0 END as elapsed_per_exec_sec
             FROM v$sql s
+            CROSS JOIN total_stats t
             WHERE (s.cpu_time > :cpu_threshold
                OR s.elapsed_time > :elapsed_threshold
                OR s.buffer_gets > :buffer_gets_threshold)
@@ -205,11 +233,19 @@ class SQLCollector:
         return None
 
     def _query_vsql_by_id(self, sql_id: str) -> Optional[SQLObject]:
-        """从v$sql查询"""
-        sql = """
+        """从v$sql查询完整SQL"""
+        # 使用 v$sqltext_with_newlines 获取完整 SQL（支持超过 1000 字符的 SQL）
+        sql_full = """
+        SELECT sql_fulltext
+        FROM v$sql
+        WHERE sql_id = :sql_id
+        AND rownum = 1
+        """
+
+        sql_stats = """
         SELECT
             sql_id,
-            sql_text,
+            parsing_schema_name as schema,
             executions,
             cpu_time / 1000 as cpu_time_ms,
             elapsed_time / 1000 as elapsed_time_ms,
@@ -219,13 +255,54 @@ class SQLCollector:
             last_active_time
         FROM v$sql
         WHERE sql_id = :sql_id
+        AND rownum = 1
         """
 
         try:
-            results = self.client.execute(sql, {"sql_id": sql_id})
-            if results:
-                return self._build_sql_object(results[0], source='sql_id_query')
-            return None
+            # 获取完整 SQL 文本
+            full_text_result = self.client.execute(sql_full, {"sql_id": sql_id})
+            if not full_text_result:
+                return None
+
+            sql_fulltext = full_text_result[0][0]
+            if sql_fulltext is None:
+                return None
+
+            # 处理 CLOB 类型
+            if hasattr(sql_fulltext, 'read'):
+                sql_fulltext = sql_fulltext.read()
+
+            # 获取执行统计
+            stats_result = self.client.execute(sql_stats, {"sql_id": sql_id})
+            if not stats_result:
+                return None
+
+            row = stats_result[0]
+            stats = SQLExecutionStats(
+                sql_id=row[0],
+                schema=row[1] or 'UNKNOWN',
+                executions=row[2] or 0,
+                cpu_time_ms=row[3] or 0,
+                elapsed_time_ms=row[4] or 0,
+                buffer_gets=row[5] or 0,
+                disk_reads=row[6] or 0,
+                rows_processed=row[7] or 0,
+                last_active_time=row[8],
+                cpu_pct=0.0,  # 单条查询不计算百分比
+                elapsed_pct=0.0,
+                elapsed_sec=(row[4] or 0) / 1000,
+                elapsed_per_exec_sec=(row[4] / row[2] / 1000) if row[2] and row[2] > 0 else 0.0
+            )
+
+            return SQLObject(
+                sql_id=sql_id,
+                sql_text=str(sql_fulltext),
+                source='sql_id_query',
+                execution_stats=stats,
+                execution_plan=None,
+                metadata=None
+            )
+
         except OracleQueryError:
             return None
 
@@ -360,16 +437,22 @@ class SQLCollector:
         """从查询结果构建SQL对象"""
         sql_id = row[0]
         sql_text = row[1]
+        schema = row[2] if len(row) > 2 else 'UNKNOWN'
 
         stats = SQLExecutionStats(
             sql_id=sql_id,
-            executions=row[2] or 0,
-            cpu_time_ms=row[3] or 0,
-            elapsed_time_ms=row[4] or 0,
-            buffer_gets=row[5] or 0,
-            disk_reads=row[6] or 0,
-            rows_processed=row[7] or 0,
-            last_active_time=row[8]
+            schema=schema,
+            executions=row[3] or 0,
+            cpu_time_ms=row[4] or 0,
+            elapsed_time_ms=row[5] or 0,
+            buffer_gets=row[6] or 0,
+            disk_reads=row[7] or 0,
+            rows_processed=row[8] or 0,
+            last_active_time=row[9] if len(row) > 9 else None,
+            cpu_pct=row[10] if len(row) > 10 else 0.0,
+            elapsed_pct=row[11] if len(row) > 11 else 0.0,
+            elapsed_sec=row[12] if len(row) > 12 else 0.0,
+            elapsed_per_exec_sec=row[13] if len(row) > 13 else 0.0
         )
 
         return SQLObject(
