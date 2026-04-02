@@ -1,0 +1,263 @@
+/* SQL Audit System - Main Styles */
+
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+    background-color: #f5f7fa;
+}
+
+/* Main Layout */
+.main-container {
+    min-height: 100vh;
+}
+
+/* Header */
+.app-header {
+    background-color: #fff;
+    border-bottom: 1px solid #e4e7ed;
+    padding: 0 20px;
+    height: 60px !important;
+}
+
+.header-content {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    height: 100%;
+}
+
+.logo {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.logo .title {
+    font-size: 20px;
+    font-weight: 600;
+    color: #303133;
+}
+
+.status-bar {
+    display: flex;
+    align-items: center;
+}
+
+/* Sidebar */
+.sidebar {
+    background-color: #fff;
+    border-right: 1px solid #e4e7ed;
+}
+
+.sidebar-menu {
+    border-right: none;
+    height: 100%;
+}
+
+/* Main Content */
+.main-content {
+    padding: 20px;
+    background-color: #f5f7fa;
+}
+
+.page-content {
+    max-width: 1200px;
+    margin: 0 auto;
+}
+
+/* Cards */
+.analyze-card, .result-card {
+    margin-bottom: 20px;
+}
+
+.card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.card-header span {
+    font-size: 16px;
+    font-weight: 600;
+}
+
+/* Input Section */
+.input-section {
+    padding: 20px 0;
+}
+
+.sql-input {
+    font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+    font-size: 14px;
+}
+
+.sql-id-input {
+    max-width: 400px;
+    margin-bottom: 20px;
+}
+
+.input-actions {
+    margin-top: 20px;
+    display: flex;
+    align-items: center;
+    gap: 15px;
+}
+
+.analyze-btn {
+    margin-left: auto;
+}
+
+/* Upload Area */
+.upload-area {
+    width: 100%;
+}
+
+.upload-area .el-upload {
+    width: 100%;
+}
+
+.upload-area .el-upload-dragger {
+    width: 100%;
+    height: 200px;
+}
+
+/* Results Section */
+.result-section {
+    margin-bottom: 30px;
+    padding-bottom: 20px;
+    border-bottom: 1px solid #ebeef5;
+}
+
+.result-section:last-child {
+    border-bottom: none;
+    margin-bottom: 0;
+}
+
+.result-section h4 {
+    margin-bottom: 15px;
+    color: #303133;
+    font-size: 16px;
+    font-weight: 600;
+}
+
+.result-section h5 {
+    margin: 15px 0 10px 0;
+    color: #606266;
+    font-size: 14px;
+}
+
+.result-section pre {
+    background-color: #1e1e1e;
+    border-radius: 4px;
+    padding: 15px;
+    overflow-x: auto;
+}
+
+.result-section code {
+    font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+    font-size: 13px;
+    line-height: 1.6;
+}
+
+/* Suggestions */
+.suggestions {
+    margin-top: 15px;
+    padding: 15px;
+    background-color: #f4f4f5;
+    border-radius: 4px;
+}
+
+.suggestions ol {
+    padding-left: 20px;
+}
+
+.suggestions li {
+    margin-bottom: 8px;
+    line-height: 1.6;
+    color: #606266;
+}
+
+/* Risk Level Tags */
+.risk-critical {
+    color: #f56c6c;
+}
+
+.risk-high {
+    color: #e6a23c;
+}
+
+.risk-medium {
+    color: #409eff;
+}
+
+.risk-low {
+    color: #67c23a;
+}
+
+/* Loading State */
+.loading-mask {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: rgba(255, 255, 255, 0.8);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 9999;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+    .sidebar {
+        width: 64px !important;
+    }
+
+    .sidebar-menu span {
+        display: none;
+    }
+
+    .main-content {
+        padding: 10px;
+    }
+
+    .card-header {
+        flex-direction: column;
+        gap: 10px;
+        align-items: flex-start;
+    }
+}
+
+/* Animation */
+.fade-enter-active, .fade-leave-active {
+    transition: opacity 0.3s ease;
+}
+
+.fade-enter-from, .fade-leave-to {
+    opacity: 0;
+}
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+}
+
+::-webkit-scrollbar-track {
+    background: #f1f1f1;
+}
+
+::-webkit-scrollbar-thumb {
+    background: #c0c4cc;
+    border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: #909399;
+}

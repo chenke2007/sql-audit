@@ -1,0 +1,671 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SQL 智能审核系统</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Vue 3 (Global build) -->
+    <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
+    <!-- Custom styles -->
+    <style>
+        [v-cloak] { display: none; }
+        .fade-enter-active, .fade-leave-active { transition: opacity 0.3s; }
+        .fade-enter-from, .fade-leave-to { opacity: 0; }
+        pre { white-space: pre-wrap; word-wrap: break-word; }
+        .sql-code { font-family: 'Consolas', 'Monaco', monospace; }
+    </style>
+</head>
+<body class="bg-gray-100 min-h-screen">
+    <div id="app" v-cloak class="h-screen flex flex-col">
+        <!-- Header - Fixed -->
+        <header class="bg-white shadow-sm border-b flex-shrink-0">
+            <div class="max-w-full mx-auto px-4 py-4 flex justify-between items-center">
+                <div class="flex items-center gap-3">
+                    <svg class="w-8 h-8 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+                    </svg>
+                    <h1 class="text-xl font-bold text-gray-800">SQL 智能审核系统</h1>
+                </div>
+                <div class="flex items-center gap-2">
+                    <span :class="['px-3 py-1 rounded-full text-sm font-medium', oracleConnected ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700']">
+                        {{ oracleConnected ? 'Oracle 已连接' : 'Oracle 未连接' }}
+                    </span>
+                    <span class="text-gray-500 text-sm">v1.0.0</span>
+                </div>
+            </div>
+        </header>
+
+        <!-- Main Layout -->
+        <div class="flex flex-1 overflow-hidden">
+            <!-- Sidebar - Fixed -->
+            <nav class="w-48 flex-shrink-0 bg-white border-r overflow-y-auto">
+                <div class="p-2">
+                    <button
+                        v-for="item in menuItems"
+                        :key="item.key"
+                        @click="handleMenuClick(item.key)"
+                        :class="['w-full text-left px-4 py-3 flex items-center gap-3 transition-colors rounded-lg', activeMenu === item.key ? 'bg-blue-50 text-blue-600' : 'text-gray-600 hover:bg-gray-50']"
+                    >
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" :d="item.icon"></path>
+                        </svg>
+                        {{ item.label }}
+                    </button>
+                </div>
+            </nav>
+
+            <!-- Main Content - Scrollable -->
+            <main class="flex-1 overflow-y-auto p-6">
+                <div class="max-w-5xl mx-auto">
+                <!-- SQL Analysis -->
+                <div v-if="activeMenu === 'analyze'" class="space-y-6">
+                    <!-- Input Card -->
+                    <div class="bg-white rounded-lg shadow-sm p-6">
+                        <div class="flex gap-2 mb-4">
+                            <button
+                                v-for="mode in inputModes"
+                                :key="mode.key"
+                                @click="analyzeMode = mode.key"
+                                :class="['px-4 py-2 rounded-lg text-sm font-medium transition-colors', analyzeMode === mode.key ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200']"
+                            >
+                                {{ mode.label }}
+                            </button>
+                        </div>
+
+                        <!-- Text Input -->
+                        <div v-if="analyzeMode === 'text'">
+                            <textarea
+                                v-model="sqlText"
+                                rows="8"
+                                placeholder="请输入需要分析的 SQL 语句..."
+                                class="w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sql-code text-sm"
+                            ></textarea>
+                            <div class="flex items-center justify-between mt-4">
+                                <div class="flex gap-4">
+                                    <label class="flex items-center gap-2 cursor-pointer">
+                                        <input type="checkbox" v-model="useLLM" class="w-4 h-4 text-blue-600 rounded">
+                                        <span class="text-sm text-gray-600">启用 AI 分析</span>
+                                    </label>
+                                    <label class="flex items-center gap-2 cursor-pointer">
+                                        <input type="checkbox" v-model="useRules" class="w-4 h-4 text-blue-600 rounded">
+                                        <span class="text-sm text-gray-600">启用规则检查</span>
+                                    </label>
+                                </div>
+                                <button
+                                    @click="analyzeSQL"
+                                    :disabled="analyzing || !sqlText.trim()"
+                                    class="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed flex items-center gap-2"
+                                >
+                                    <svg v-if="analyzing" class="animate-spin h-4 w-4" fill="none" viewBox="0 0 24 24">
+                                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                    </svg>
+                                    {{ analyzing ? '分析中...' : '开始分析' }}
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- SQL_ID Input -->
+                        <div v-if="analyzeMode === 'sql_id'">
+                            <input
+                                v-model="sqlId"
+                                placeholder="请输入 SQL_ID (如: 1a2b3c4d...)"
+                                class="w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-blue-500 mb-4"
+                            >
+                            <div class="flex items-center justify-between">
+                                <label class="flex items-center gap-2 cursor-pointer">
+                                    <input type="checkbox" v-model="useLLM" class="w-4 h-4 text-blue-600 rounded">
+                                    <span class="text-sm text-gray-600">启用 AI 分析</span>
+                                </label>
+                                <button
+                                    @click="analyzeBySqlId"
+                                    :disabled="analyzing || !sqlId.trim() || !oracleConnected"
+                                    class="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-300"
+                                >
+                                    {{ analyzing ? '分析中...' : '从数据库查询并分析' }}
+                                </button>
+                            </div>
+                            <p v-if="!oracleConnected" class="text-orange-500 text-sm mt-2">需要 Oracle 连接</p>
+                        </div>
+
+                        <!-- File Upload -->
+                        <div v-if="analyzeMode === 'file'" class="border-2 border-dashed border-gray-300 rounded-lg p-12 text-center hover:border-blue-500 transition-colors">
+                            <svg class="mx-auto h-12 w-12 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"></path>
+                            </svg>
+                            <p class="mt-4 text-gray-600">拖拽文件到此处或 <button @click="triggerFileUpload" class="text-blue-600 hover:underline">点击上传</button></p>
+                            <p class="mt-2 text-sm text-gray-500">支持 .sql, .txt 文件</p>
+                            <input type="file" ref="fileInput" @change="handleFileUpload" accept=".sql,.txt" class="hidden">
+                        </div>
+                    </div>
+
+                    <!-- Results Card -->
+                    <div v-if="analysisResult" class="bg-white rounded-lg shadow-sm p-6 min-w-0">
+                        <div class="flex flex-col sm:flex-row sm:items-center justify-between mb-4 gap-3">
+                            <h2 class="text-lg font-semibold">分析结果</h2>
+                            <div class="flex items-center gap-3 flex-wrap">
+                                <button
+                                    @click="exportToPDF"
+                                    :disabled="exportingPDF"
+                                    class="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:bg-gray-300 flex items-center gap-2"
+                                >
+                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+                                    </svg>
+                                    {{ exportingPDF ? '导出中...' : '导出 PDF' }}
+                                </button>
+                                <span :class="['px-3 py-1 rounded-full text-sm font-medium', getRiskClass(analysisResult.risk_level)]">
+                                    {{ analysisResult.risk_level || '未知' }} 风险
+                                </span>
+                            </div>
+                        </div>
+
+                        <!-- SQL Display -->
+                        <div class="mb-6">
+                            <h3 class="text-sm font-medium text-gray-700 mb-2">SQL 语句</h3>
+                            <pre class="bg-gray-900 text-gray-100 p-4 rounded-lg sql-code text-sm overflow-x-auto whitespace-pre-wrap break-all">{{ analysisResult.sql_text || sqlText }}</pre>
+                        </div>
+
+                        <!-- Rule Violations -->
+                        <div v-if="analysisResult.rule_violations?.length" class="mb-6">
+                            <h3 class="text-sm font-medium text-gray-700 mb-3">规则检查问题 ({{ analysisResult.rule_violations.length }})</h3>
+                            <div class="space-y-3">
+                                <div v-for="(v, index) in analysisResult.rule_violations" :key="index" class="border rounded-lg p-4">
+                                    <div class="flex flex-col sm:flex-row sm:items-center gap-2 mb-2">
+                                        <span :class="['px-2 py-1 rounded text-xs font-medium self-start', getSeverityClass(v.severity)]">{{ v.severity }}</span>
+                                        <span class="font-medium break-words">{{ v.rule_id }}: {{ v.rule_name }}</span>
+                                    </div>
+                                    <p class="text-gray-600 text-sm mb-1 break-words">{{ v.message }}</p>
+                                    <p class="text-blue-600 text-sm break-words">{{ v.suggestion }}</p>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- LLM Analysis -->
+                        <div v-if="analysisResult.llm_analysis">
+                            <h3 class="text-sm font-medium text-gray-700 mb-3">AI 智能分析</h3>
+                            <div class="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-4">
+                                <p class="text-blue-800 break-words">{{ analysisResult.llm_analysis.summary }}</p>
+                            </div>
+
+                            <!-- Issues -->
+                            <div v-if="analysisResult.llm_analysis.issues?.length" class="mb-4">
+                                <h4 class="font-medium text-gray-700 mb-2">发现的问题</h4>
+                                <div class="space-y-2">
+                                    <div v-for="(issue, i) in analysisResult.llm_analysis.issues" :key="i" class="border-l-4 pl-3 py-2" :class="{'border-red-500 bg-red-50': issue.severity === 'high', 'border-yellow-500 bg-yellow-50': issue.severity === 'medium', 'border-blue-500 bg-blue-50': issue.severity === 'low'}">
+                                        <div class="flex flex-col sm:flex-row sm:items-center gap-2">
+                                            <span class="text-xs font-medium px-2 py-0.5 rounded self-start" :class="{'bg-red-200 text-red-800': issue.severity === 'high', 'bg-yellow-200 text-yellow-800': issue.severity === 'medium', 'bg-blue-200 text-blue-800': issue.severity === 'low'}">{{ issue.severity }}</span>
+                                            <span class="font-medium text-sm break-words">{{ issue.description }}</span>
+                                        </div>
+                                        <p v-if="issue.impact" class="text-gray-600 text-sm mt-1 break-words">影响: {{ issue.impact }}</p>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Index Suggestions -->
+                            <div v-if="analysisResult.llm_analysis.index_suggestions?.length" class="mb-4">
+                                <h4 class="font-medium text-gray-700 mb-2">索引建议</h4>
+                                <div class="space-y-3">
+                                    <div v-for="(idx, i) in analysisResult.llm_analysis.index_suggestions" :key="i" class="bg-green-50 border border-green-200 rounded-lg p-4 min-w-0">
+                                        <div class="flex items-center justify-between mb-2 flex-wrap gap-2">
+                                            <span class="font-medium text-green-900">{{ idx.table }} 表</span>
+                                            <span v-if="idx.estimate_benefit" class="text-xs bg-green-200 text-green-800 px-2 py-1 rounded">{{ idx.estimate_benefit }}</span>
+                                        </div>
+                                        <p class="text-green-700 text-sm mb-2 break-words">列: {{ idx.columns?.join(', ') || '-' }}</p>
+                                        <!-- SQL Display -->
+                                        <div v-if="idx.sql && idx.sql.trim()" class="relative group">
+                                            <pre class="bg-gray-900 text-gray-100 p-3 rounded-lg sql-code text-sm mb-2 whitespace-pre-wrap break-all overflow-x-auto">{{ idx.sql }}</pre>
+                                            <button @click="copyToClipboard(idx.sql)" class="absolute top-2 right-2 opacity-0 group-hover:opacity-100 bg-gray-700 hover:bg-gray-600 text-white text-xs px-2 py-1 rounded transition-opacity">
+                                                复制
+                                            </button>
+                                        </div>
+                                        <div v-else class="bg-yellow-100 border border-yellow-300 text-yellow-800 p-2 rounded text-sm mb-2">
+                                            ⚠️ 未返回具体的 CREATE INDEX 语句
+                                        </div>
+                                        <p v-if="idx.reason" class="text-green-600 text-sm break-words"><strong>原因:</strong> {{ idx.reason }}</p>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Rewrite Suggestions -->
+                            <div v-if="analysisResult.llm_analysis.rewrite_suggestions?.length" class="mb-4">
+                                <h4 class="font-medium text-gray-700 mb-2">重写建议</h4>
+                                <div class="space-y-3">
+                                    <div v-for="(sql, i) in analysisResult.llm_analysis.rewrite_suggestions" :key="i" class="relative group">
+                                        <pre class="bg-gray-900 text-gray-100 p-3 rounded-lg sql-code text-sm whitespace-pre-wrap break-all overflow-x-auto">{{ sql }}</pre>
+                                        <button @click="copyToClipboard(sql)" class="absolute top-2 right-2 opacity-0 group-hover:opacity-100 bg-gray-700 hover:bg-gray-600 text-white text-xs px-2 py-1 rounded transition-opacity">
+                                            复制
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Optimization Suggestions -->
+                            <div v-if="analysisResult.llm_analysis.optimization_suggestions?.length" class="mb-4">
+                                <h4 class="font-medium text-gray-700 mb-2">其他优化建议</h4>
+                                <ol class="list-decimal list-inside space-y-1 text-gray-600">
+                                    <li v-for="(s, i) in analysisResult.llm_analysis.optimization_suggestions" :key="i" class="break-words">{{ s }}</li>
+                                </ol>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- SQL Collection -->
+                <div v-if="activeMenu === 'collection'" class="bg-white rounded-lg shadow-sm p-6">
+                    <div class="flex items-center justify-between mb-4">
+                        <h2 class="text-lg font-semibold">慢 SQL 采集</h2>
+                        <div class="flex items-center gap-4">
+                            <label class="text-sm text-gray-600">
+                                Top N:
+                                <select v-model="collectionTopN" class="ml-1 border rounded px-2 py-1">
+                                    <option :value="10">10</option>
+                                    <option :value="20">20</option>
+                                    <option :value="50">50</option>
+                                </select>
+                            </label>
+                            <label class="text-sm text-gray-600 flex items-center gap-2">
+                                <input type="checkbox" v-model="excludeSystemSQL" class="rounded">
+                                排除系统SQL
+                            </label>
+                            <button
+                                @click="collectSlowSQLs"
+                                :disabled="collecting || !oracleConnected"
+                                class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-300"
+                            >
+                                {{ collecting ? '采集中...' : '采集慢 SQL' }}
+                            </button>
+                        </div>
+                    </div>
+                    <div v-if="!oracleConnected" class="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mb-4 text-yellow-800">
+                        Oracle 未连接，无法采集慢 SQL
+                    </div>
+                    <!-- Collection Error -->
+                    <div v-if="collectionError" class="bg-red-50 border border-red-200 rounded-lg p-4 mb-4 text-red-800">
+                        <strong>采集失败:</strong> {{ collectionError }}
+                    </div>
+                    <!-- Empty State with Info -->
+                    <div v-if="collectedSQLs.length === 0 && !collecting && !collectionError" class="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-4 text-blue-800">
+                        <p>点击上方按钮采集慢 SQL。</p>
+                        <p class="text-sm mt-1 text-blue-600">提示：如果返回为空，可能是当前没有超过阈值的慢 SQL。</p>
+                    </div>
+                    <div v-if="collectedSQLs.length" class="overflow-x-auto">
+                        <table class="w-full text-sm">
+                            <thead class="bg-gray-50">
+                                <tr>
+                                    <th class="px-4 py-2 text-left">SQL_ID</th>
+                                    <th class="px-4 py-2 text-left">SQL 文本</th>
+                                    <th class="px-4 py-2 text-left">操作</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr v-for="sql in collectedSQLs" :key="sql.sql_id" class="border-t">
+                                    <td class="px-4 py-2 font-mono">{{ sql.sql_id }}</td>
+                                    <td class="px-4 py-2 max-w-md truncate">{{ sql.sql_text }}</td>
+                                    <td class="px-4 py-2">
+                                        <button @click="analyzeCollectedSQL(sql)" class="text-blue-600 hover:underline">分析</button>
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                    <p v-else-if="!collecting" class="text-gray-500 text-center py-8">暂无数据，点击上方按钮采集</p>
+                </div>
+
+                <!-- Rules Configuration -->
+                <div v-if="activeMenu === 'rules'" class="bg-white rounded-lg shadow-sm p-6">
+                    <div class="flex items-center justify-between mb-4">
+                        <h2 class="text-lg font-semibold">规则配置</h2>
+                        <span class="text-gray-500">共 {{ rules.length }} 条规则</span>
+                    </div>
+                    <div v-if="loadingRules" class="text-center py-8 text-gray-500">加载中...</div>
+                    <div v-else class="overflow-x-auto">
+                        <table class="w-full text-sm">
+                            <thead class="bg-gray-50">
+                                <tr>
+                                    <th class="px-4 py-2 text-left">规则ID</th>
+                                    <th class="px-4 py-2 text-left">名称</th>
+                                    <th class="px-4 py-2 text-left">类别</th>
+                                    <th class="px-4 py-2 text-left">严重程度</th>
+                                    <th class="px-4 py-2 text-left">状态</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr v-for="rule in rules" :key="rule.rule_id" class="border-t">
+                                    <td class="px-4 py-2 font-mono">{{ rule.rule_id }}</td>
+                                    <td class="px-4 py-2">{{ rule.name }}</td>
+                                    <td class="px-4 py-2">{{ rule.category }}</td>
+                                    <td class="px-4 py-2">
+                                        <span :class="['px-2 py-1 rounded text-xs', getSeverityClass(rule.severity)]">{{ rule.severity }}</span>
+                                    </td>
+                                    <td class="px-4 py-2">
+                                        <label class="relative inline-flex items-center cursor-pointer">
+                                            <input type="checkbox" v-model="rule.enabled" @change="toggleRule(rule.rule_id, rule.enabled)" class="sr-only peer">
+                                            <div class="w-11 h-6 bg-gray-200 peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                                        </label>
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </main>
+        </div>
+
+        <!-- Toast Notification -->
+        <div v-if="toasts.length > 0" class="fixed bottom-4 right-4 z-50">
+            <transition-group name="fade">
+                <div v-for="toast in toasts" :key="toast.id" :class="['mb-2 px-4 py-3 rounded-lg shadow-lg text-white', toast.type === 'error' ? 'bg-red-500' : toast.type === 'success' ? 'bg-green-500' : 'bg-blue-500']">
+                    {{ toast.message }}
+                </div>
+            </transition-group>
+        </div>
+    </div>
+
+    <script>
+        const { createApp, ref, onMounted } = Vue;
+
+        createApp({
+            setup() {
+                // State
+                const activeMenu = ref('analyze');
+                const oracleConnected = ref(false);
+                const analyzeMode = ref('text');
+                const sqlText = ref('');
+                const sqlId = ref('');
+                const useLLM = ref(true);
+                const useRules = ref(true);
+                const analyzing = ref(false);
+                const exportingPDF = ref(false);
+                const collecting = ref(false);
+                const collectionTopN = ref(20);
+                const collectionError = ref('');
+                const excludeSystemSQL = ref(true);
+                const loadingRules = ref(false);
+                const analysisResult = ref(null);
+                const collectedSQLs = ref([]);
+                const rules = ref([]);
+                const toasts = ref([]);
+                const fileInput = ref(null);
+
+                // Menu
+                const menuItems = [
+                    { key: 'analyze', label: 'SQL 分析', icon: 'M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z' },
+                    { key: 'collection', label: 'SQL 采集', icon: 'M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4' },
+                    { key: 'rules', label: '规则配置', icon: 'M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2' }
+                ];
+
+                const inputModes = [
+                    { key: 'text', label: 'SQL文本' },
+                    { key: 'sql_id', label: 'SQL_ID' },
+                    { key: 'file', label: '文件上传' }
+                ];
+
+                // Toast helper
+                const showToast = (message, type = 'info') => {
+                    const id = Date.now();
+                    toasts.value.push({ id, message, type });
+                    setTimeout(() => {
+                        toasts.value = toasts.value.filter(t => t.id !== id);
+                    }, 3000);
+                };
+
+                // Health check
+                const checkHealth = async () => {
+                    try {
+                        const res = await fetch('/health');
+                        const data = await res.json();
+                        oracleConnected.value = data.oracle_connection;
+                    } catch (e) {
+                        oracleConnected.value = false;
+                    }
+                };
+
+                // Analyze SQL
+                const analyzeSQL = async () => {
+                    if (!sqlText.value.trim()) {
+                        showToast('请输入 SQL 语句', 'error');
+                        return;
+                    }
+                    analyzing.value = true;
+                    try {
+                        const res = await fetch('/api/analyze/single', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                sql_text: sqlText.value,
+                                use_llm: useLLM.value,
+                                use_rules: useRules.value
+                            })
+                        });
+                        if (!res.ok) throw new Error('分析失败');
+                        analysisResult.value = await res.json();
+                        showToast('分析完成', 'success');
+                    } catch (e) {
+                        showToast(e.message, 'error');
+                    } finally {
+                        analyzing.value = false;
+                    }
+                };
+
+                // Analyze by SQL_ID
+                const analyzeBySqlId = async () => {
+                    if (!sqlId.value.trim()) return;
+                    analyzing.value = true;
+                    try {
+                        const res = await fetch(`/api/analyze/by-sql-id?sql_id=${encodeURIComponent(sqlId.value)}&use_llm=${useLLM.value}`, { method: 'POST' });
+                        if (!res.ok) throw new Error('分析失败');
+                        analysisResult.value = await res.json();
+                        showToast('分析完成', 'success');
+                    } catch (e) {
+                        showToast(e.message, 'error');
+                    } finally {
+                        analyzing.value = false;
+                    }
+                };
+
+                // Collect slow SQLs
+                const collectSlowSQLs = async () => {
+                    collecting.value = true;
+                    collectionError.value = '';
+                    try {
+                        const res = await fetch('/api/collect/slow-sqls', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                top_n: collectionTopN.value,
+                                cpu_threshold_ms: 1000,
+                                elapsed_threshold_ms: 1000,
+                                buffer_gets_threshold: 10000,
+                                exclude_system: excludeSystemSQL.value
+                            })
+                        });
+                        if (!res.ok) {
+                            const err = await res.json().catch(() => ({}));
+                            throw new Error(err.detail || `采集失败: ${res.status}`);
+                        }
+                        collectedSQLs.value = await res.json();
+                        if (collectedSQLs.value.length === 0) {
+                            showToast('未采集到慢 SQL（降低阈值或增加采样时间）', 'info');
+                        } else {
+                            showToast(`采集到 ${collectedSQLs.value.length} 条慢 SQL`, 'success');
+                        }
+                    } catch (e) {
+                        collectionError.value = e.message;
+                        showToast(e.message, 'error');
+                    } finally {
+                        collecting.value = false;
+                    }
+                };
+
+                // Analyze collected SQL
+                const analyzeCollectedSQL = async (sql) => {
+                    if (sql.sql_id) {
+                        // 如果有 SQL_ID，通过接口获取完整 SQL
+                        try {
+                            const res = await fetch('/api/collect/by-sql-id', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ sql_id: sql.sql_id, include_plan: false })
+                            });
+                            if (res.ok) {
+                                const data = await res.json();
+                                sqlText.value = data.sql_text;
+                            } else {
+                                // 如果获取失败，使用列表中的文本
+                                sqlText.value = sql.sql_text;
+                            }
+                        } catch (e) {
+                            sqlText.value = sql.sql_text;
+                        }
+                    } else {
+                        sqlText.value = sql.sql_text;
+                    }
+                    activeMenu.value = 'analyze';
+                    analyzeMode.value = 'text';
+                    // 清空之前的结果
+                    analysisResult.value = null;
+                };
+
+                // Load rules
+                const loadRules = async () => {
+                    loadingRules.value = true;
+                    try {
+                        const res = await fetch('/api/analyze/rules');
+                        const data = await res.json();
+                        rules.value = data.rules;
+                    } catch (e) {
+                        showToast('加载规则失败', 'error');
+                    } finally {
+                        loadingRules.value = false;
+                    }
+                };
+
+                // Toggle rule
+                const toggleRule = async (ruleId, enabled) => {
+                    try {
+                        await fetch(`/api/analyze/rules/${ruleId}/toggle?enabled=${enabled}`, { method: 'POST' });
+                        showToast(enabled ? '规则已启用' : '规则已禁用', 'success');
+                    } catch (e) {
+                        showToast('切换失败', 'error');
+                    }
+                };
+
+                // File upload
+                const triggerFileUpload = () => fileInput.value?.click();
+                const handleFileUpload = async (e) => {
+                    const file = e.target.files[0];
+                    if (!file) return;
+                    const formData = new FormData();
+                    formData.append('file', file);
+                    try {
+                        const res = await fetch('/api/collect/upload-file', { method: 'POST', body: formData });
+                        const data = await res.json();
+                        if (data.length > 0) {
+                            sqlText.value = data[0].sql_text;
+                            analyzeMode.value = 'text';
+                            showToast('文件上传成功', 'success');
+                        }
+                    } catch (e) {
+                        showToast('上传失败', 'error');
+                    }
+                };
+
+                // Copy to clipboard
+                const copyToClipboard = async (text) => {
+                    try {
+                        await navigator.clipboard.writeText(text);
+                        showToast('已复制到剪贴板', 'success');
+                    } catch (e) {
+                        // Fallback for older browsers
+                        const textarea = document.createElement('textarea');
+                        textarea.value = text;
+                        textarea.style.position = 'fixed';
+                        textarea.style.opacity = '0';
+                        document.body.appendChild(textarea);
+                        textarea.select();
+                        document.execCommand('copy');
+                        document.body.removeChild(textarea);
+                        showToast('已复制到剪贴板', 'success');
+                    }
+                };
+
+                // Export to PDF
+                const exportToPDF = async () => {
+                    if (!analysisResult.value) return;
+                    exportingPDF.value = true;
+                    try {
+                        const res = await fetch('/api/analyze/export/pdf', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                sql_text: sqlText.value,
+                                use_llm: useLLM.value,
+                                use_rules: useRules.value
+                            })
+                        });
+                        if (!res.ok) throw new Error('导出失败');
+
+                        // 下载文件
+                        const blob = await res.blob();
+                        const url = window.URL.createObjectURL(blob);
+                        const a = document.createElement('a');
+                        a.href = url;
+                        const filename = res.headers.get('content-disposition')?.match(/filename="(.+)"/)?.[1] || 'sql_audit_report.pdf';
+                        a.download = filename;
+                        document.body.appendChild(a);
+                        a.click();
+                        window.URL.revokeObjectURL(url);
+                        document.body.removeChild(a);
+
+                        showToast('PDF 导出成功', 'success');
+                    } catch (e) {
+                        showToast(e.message, 'error');
+                    } finally {
+                        exportingPDF.value = false;
+                    }
+                };
+
+                // Menu click handler
+                const handleMenuClick = (key) => {
+                    activeMenu.value = key;
+                    if (key === 'rules' && rules.value.length === 0) {
+                        loadRules();
+                    }
+                };
+                const getRiskClass = (level) => ({
+                    'CRITICAL': 'bg-red-100 text-red-700',
+                    'HIGH': 'bg-orange-100 text-orange-700',
+                    'MEDIUM': 'bg-yellow-100 text-yellow-700',
+                    'LOW': 'bg-green-100 text-green-700'
+                })[level] || 'bg-gray-100 text-gray-700';
+
+                const getSeverityClass = (severity) => ({
+                    'critical': 'bg-red-100 text-red-700',
+                    'high': 'bg-orange-100 text-orange-700',
+                    'medium': 'bg-yellow-100 text-yellow-700',
+                    'low': 'bg-green-100 text-green-700'
+                })[severity] || 'bg-gray-100 text-gray-700';
+
+                onMounted(() => {
+                    checkHealth();
+                    setInterval(checkHealth, 30000);
+                    if (activeMenu.value === 'rules') loadRules();
+                });
+
+                return {
+                    activeMenu, oracleConnected, analyzeMode, sqlText, sqlId,
+                    useLLM, useRules, analyzing, exportingPDF, collecting, collectionTopN, collectionError, excludeSystemSQL, loadingRules,
+                    analysisResult, collectedSQLs, rules, toasts, fileInput,
+                    menuItems, inputModes,
+                    analyzeSQL, analyzeBySqlId, collectSlowSQLs, analyzeCollectedSQL,
+                    loadRules, toggleRule, triggerFileUpload, handleFileUpload,
+                    getRiskClass, getSeverityClass, handleMenuClick, copyToClipboard, exportToPDF
+                };
+            }
+        }).mount('#app');
+    </script>
+</body>
+</html>
