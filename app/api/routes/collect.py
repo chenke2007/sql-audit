@@ -234,7 +234,7 @@ async def upload_sql(request: SQLUploadRequest):
                 execution_plan=plan
             )
 
-            return sql_object_to_response(sql_obj)
+            return sql_object_to_response(sql_obj, truncate_sql=False)
         finally:
             client.close()
 
@@ -285,10 +285,14 @@ async def upload_sql_file(
             results = []
 
             for sql_text in sql_statements[:10]:  # 限制最多10条
-                # 获取执行计划
+                # 获取执行计划（失败不影响整体结果）
                 plan = None
                 if include_plan:
-                    plan = collector.explain_sql(sql_text)
+                    try:
+                        plan = collector.explain_sql(sql_text)
+                    except Exception as e:
+                        logger.warning(f"生成执行计划失败: {e}")
+                        plan = None
 
                 sql_obj = SQLObject(
                     sql_id=None,
@@ -297,7 +301,7 @@ async def upload_sql_file(
                     execution_stats=None,
                     execution_plan=plan
                 )
-                results.append(sql_object_to_response(sql_obj))
+                results.append(sql_object_to_response(sql_obj, truncate_sql=False))
 
             return results
         finally:

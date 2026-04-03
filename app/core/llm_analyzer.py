@@ -87,7 +87,7 @@ class LLMClient:
                         {"role": "user", "content": prompt}
                     ],
                     "temperature": 0.3,
-                    "max_tokens": 4000
+                    "max_tokens": 4096
                 }
             )
             response.raise_for_status()
@@ -162,12 +162,23 @@ class LLMClient:
         """构建分析提示词"""
         formatted_sql = format_sql(sql_text)
 
+        # 限制SQL长度，避免超出模型上下文窗口
+        MAX_SQL_LENGTH = 3000
+        sql_truncated = False
+        if len(formatted_sql) > MAX_SQL_LENGTH:
+            formatted_sql = formatted_sql[:MAX_SQL_LENGTH] + "\n-- ... [SQL已截断，原长度: " + str(len(formatted_sql)) + " 字符]"
+            sql_truncated = True
+
         prompt = f"""请分析以下 SQL 语句的性能：
 
 ## SQL 语句
 ```sql
 {formatted_sql}
 ```
+"""
+        if sql_truncated:
+            prompt += """
+注意：此SQL语句较长，仅显示了前3000字符。请基于可见部分进行分析，重点关注SQL结构和潜在性能问题。
 """
 
         # 添加执行计划信息
@@ -321,10 +332,17 @@ class SQLAnalyzer:
                 rule_violations=rule_violations
             )
         except Exception as e:
+            import traceback
             logger.error(f"LLM 分析失败: {e}")
+            logger.error(f"LLM 错误详情: {traceback.format_exc()}")
+            # 检查是否是SQL过长导致的错误
+            if len(sql_text) > 5000:
+                summary_msg = "SQL语句过长，LLM分析无法完成。请参考规则引擎结果，或尝试分段分析。"
+            else:
+                summary_msg = "LLM 分析暂时不可用，请参考规则引擎结果"
             llm_result = LLMAnalysisResult(
                 sql_id=sql_id,
-                summary="LLM 分析暂时不可用，请参考规则引擎结果",
+                summary=summary_msg,
                 confidence="low"
             )
 
