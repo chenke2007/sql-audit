@@ -168,6 +168,19 @@ class DynamicOracleClient:
             finally:
                 cursor.close()
 
+    def execute(self, sql: str, params: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
+        """
+        执行查询（兼容 OracleClient 接口）
+
+        Args:
+            sql: SQL 语句
+            params: 查询参数
+
+        Returns:
+            查询结果列表
+        """
+        return self.execute_query(sql, params)
+
     def get_execution_plan(self, sql_id: str) -> Optional[Dict[str, Any]]:
         """获取SQL执行计划"""
         try:
