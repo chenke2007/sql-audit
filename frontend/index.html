@@ -61,6 +61,22 @@
                 <div class="max-w-5xl mx-auto">
                 <!-- SQL Analysis -->
                 <div v-if="activeMenu === 'analyze'" class="space-y-6">
+                    <!-- Data Source Selector -->
+                    <div class="bg-white rounded-lg shadow-sm p-4">
+                        <div class="flex items-center gap-4">
+                            <label class="text-sm font-medium text-gray-700">选择数据源:</label>
+                            <select v-model="selectedAnalyzeSource" class="px-3 py-2 border rounded-lg min-w-[200px]">
+                                <option v-for="source in dbSources" :key="source.id" :value="source.id">
+                                    {{ source.name }} ({{ source.db_type?.toUpperCase() }})
+                                </option>
+                            </select>
+                            <span v-if="selectedAnalyzeSource" class="text-sm text-gray-500">
+                                {{ dbSources.find(s => s.id === selectedAnalyzeSource)?.host }}:{{ dbSources.find(s => s.id === selectedAnalyzeSource)?.port }}
+                            </span>
+                            <button @click="loadDBSources" class="text-sm text-blue-600 hover:text-blue-800 ml-auto">刷新列表</button>
+                        </div>
+                    </div>
+
                     <!-- Input Card -->
                     <div class="bg-white rounded-lg shadow-sm p-6">
                         <div class="flex gap-2 mb-4">
@@ -95,7 +111,7 @@
                                 </div>
                                 <button
                                     @click="analyzeSQL"
-                                    :disabled="analyzing || !sqlText.trim()"
+                                    :disabled="analyzing || !sqlText.trim() || !selectedAnalyzeSource"
                                     class="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed flex items-center gap-2"
                                 >
                                     <svg v-if="analyzing" class="animate-spin h-4 w-4" fill="none" viewBox="0 0 24 24">
@@ -121,13 +137,13 @@
                                 </label>
                                 <button
                                     @click="analyzeBySqlId"
-                                    :disabled="analyzing || !sqlId.trim() || !oracleConnected"
+                                    :disabled="analyzing || !sqlId.trim() || !selectedAnalyzeSource"
                                     class="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-300"
                                 >
                                     {{ analyzing ? '分析中...' : '从数据库查询并分析' }}
                                 </button>
                             </div>
-                            <p v-if="!oracleConnected" class="text-orange-500 text-sm mt-2">需要 Oracle 连接</p>
+                            <p v-if="!selectedAnalyzeSource" class="text-orange-500 text-sm mt-2">请先选择数据源</p>
                         </div>
 
                         <!-- File Upload -->
@@ -255,6 +271,20 @@
 
                 <!-- SQL Collection -->
                 <div v-if="activeMenu === 'collection'" class="bg-white rounded-lg shadow-sm p-6">
+                    <!-- Data Source Selector -->
+                    <div class="mb-4 p-3 bg-gray-50 rounded-lg flex items-center gap-4">
+                        <label class="text-sm font-medium text-gray-700">选择数据源:</label>
+                        <select v-model="selectedCollectionSource" @change="onCollectionSourceChange" class="px-3 py-2 border rounded-lg min-w-[200px]">
+                            <option v-for="source in dbSources" :key="source.id" :value="source.id">
+                                {{ source.name }} ({{ source.db_type?.toUpperCase() }})
+                            </option>
+                        </select>
+                        <span v-if="selectedCollectionSource" class="text-sm text-gray-500">
+                            {{ dbSources.find(s => s.id === selectedCollectionSource)?.host }}:{{ dbSources.find(s => s.id === selectedCollectionSource)?.port }}
+                        </span>
+                        <button @click="loadDBSources" class="text-sm text-blue-600 hover:text-blue-800 ml-auto">刷新列表</button>
+                    </div>
+
                     <div class="flex items-center justify-between mb-4">
                         <h2 class="text-lg font-semibold">慢 SQL 采集</h2>
                         <div class="flex items-center gap-4">
@@ -272,7 +302,7 @@
                             </label>
                             <button
                                 @click="collectSlowSQLs"
-                                :disabled="collecting || !oracleConnected"
+                                :disabled="collecting || !selectedCollectionSource"
                                 class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-300"
                             >
                                 {{ collecting ? '采集中...' : '采集慢 SQL' }}
@@ -381,7 +411,150 @@
                         </table>
                     </div>
                 </div>
+
+                <!-- Database Source Management -->
+                <div v-if="activeMenu === 'db_sources'" class="space-y-6">
+                    <div class="bg-white rounded-lg shadow-sm p-6">
+                        <div class="flex items-center justify-between mb-4">
+                            <h2 class="text-lg font-semibold">数据源管理</h2>
+                            <button @click="openDBSourceModal()" class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center gap-2">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path>
+                                </svg>
+                                新增数据源
+                            </button>
+                        </div>
+
+                        <!-- Filter -->
+                        <div class="flex gap-4 mb-4">
+                            <input v-model="dbSourceFilter.name" placeholder="数据源名称" class="px-3 py-2 border rounded-lg">
+                            <input v-model="dbSourceFilter.host" placeholder="IP地址" class="px-3 py-2 border rounded-lg">
+                            <select v-model="dbSourceFilter.db_type" class="px-3 py-2 border rounded-lg">
+                                <option value="">全部类型</option>
+                                <option value="oracle">Oracle</option>
+                                <option value="mysql">MySQL</option>
+                                <option value="postgresql">PostgreSQL</option>
+                            </select>
+                            <button @click="loadDBSources()" class="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200">查询</button>
+                        </div>
+
+                        <!-- Table -->
+                        <div v-if="loadingDBSources" class="text-center py-8 text-gray-500">加载中...</div>
+                        <div v-else class="overflow-x-auto">
+                            <table class="w-full text-sm">
+                                <thead class="bg-gray-50">
+                                    <tr>
+                                        <th class="px-4 py-2 text-left">名称</th>
+                                        <th class="px-4 py-2 text-left">类型</th>
+                                        <th class="px-4 py-2 text-left">主机</th>
+                                        <th class="px-4 py-2 text-left">端口</th>
+                                        <th class="px-4 py-2 text-left">用户名</th>
+                                        <th class="px-4 py-2 text-left">默认</th>
+                                        <th class="px-4 py-2 text-left">操作</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr v-for="source in dbSources" :key="source.id" class="border-t">
+                                        <td class="px-4 py-2">{{ source.name }}</td>
+                                        <td class="px-4 py-2">
+                                            <span :class="['px-2 py-1 rounded text-xs', source.db_type === 'oracle' ? 'bg-orange-100 text-orange-700' : source.db_type === 'mysql' ? 'bg-blue-100 text-blue-700' : 'bg-green-100 text-green-700']">{{ source.db_type?.toUpperCase() }}</span>
+                                        </td>
+                                        <td class="px-4 py-2 font-mono">{{ source.host }}</td>
+                                        <td class="px-4 py-2">{{ source.port }}</td>
+                                        <td class="px-4 py-2">{{ source.username }}</td>
+                                        <td class="px-4 py-2">
+                                            <span v-if="source.is_default" class="px-2 py-1 bg-green-100 text-green-700 rounded text-xs">默认</span>
+                                        </td>
+                                        <td class="px-4 py-2 flex gap-2">
+                                            <button @click="testDBSourceConnection(source)" :disabled="testingSource === source.id" class="text-green-600 hover:text-green-800 text-sm">
+                                                {{ testingSource === source.id ? '测试中...' : '测试' }}
+                                            </button>
+                                            <button @click="openDBSourceModal(source)" class="text-blue-600 hover:text-blue-800 text-sm">编辑</button>
+                                            <button @click="deleteDBSource(source)" class="text-red-600 hover:text-red-800 text-sm">删除</button>
+                                        </td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
             </main>
+        </div>
+
+        <!-- DB Source Modal -->
+        <div v-if="showDBSourceModal" class="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+            <div class="bg-white rounded-lg shadow-lg p-6 w-full max-w-lg">
+                <h3 class="text-lg font-semibold mb-4">{{ editingDBSource ? '编辑数据源' : '新增数据源' }}</h3>
+                <div class="space-y-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">数据库类型</label>
+                        <select v-model="dbSourceForm.db_type" class="w-full px-3 py-2 border rounded-lg" :disabled="editingDBSource">
+                            <option value="oracle">Oracle</option>
+                            <option value="mysql">MySQL (开发中)</option>
+                            <option value="postgresql">PostgreSQL (开发中)</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">显示名称 *</label>
+                        <input v-model="dbSourceForm.name" class="w-full px-3 py-2 border rounded-lg" placeholder="如：生产环境-Oracle">
+                    </div>
+                    <div class="grid grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">主机地址 *</label>
+                            <input v-model="dbSourceForm.host" class="w-full px-3 py-2 border rounded-lg" placeholder="192.168.1.10">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">端口 *</label>
+                            <input v-model.number="dbSourceForm.port" type="number" class="w-full px-3 py-2 border rounded-lg" placeholder="1521">
+                        </div>
+                    </div>
+                    <!-- Oracle specific -->
+                    <div v-if="dbSourceForm.db_type === 'oracle'">
+                        <label class="block text-sm font-medium text-gray-700 mb-1">连接方式</label>
+                        <div class="flex gap-4 mb-2">
+                            <label class="flex items-center gap-2">
+                                <input type="radio" v-model="dbSourceForm.connection_mode" value="service_name">
+                                <span class="text-sm">Service Name</span>
+                            </label>
+                            <label class="flex items-center gap-2">
+                                <input type="radio" v-model="dbSourceForm.connection_mode" value="sid">
+                                <span class="text-sm">SID</span>
+                            </label>
+                        </div>
+                        <input v-if="dbSourceForm.connection_mode === 'service_name'" v-model="dbSourceForm.service_name" class="w-full px-3 py-2 border rounded-lg" placeholder="ORCL">
+                        <input v-else v-model="dbSourceForm.sid" class="w-full px-3 py-2 border rounded-lg" placeholder="ORCL">
+                    </div>
+                    <div class="grid grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">用户名 *</label>
+                            <input v-model="dbSourceForm.username" class="w-full px-3 py-2 border rounded-lg">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">密码 {{ editingDBSource ? '(不填则不修改)' : '*' }}</label>
+                            <input v-model="dbSourceForm.password" type="password" class="w-full px-3 py-2 border rounded-lg">
+                        </div>
+                    </div>
+                    <div>
+                        <label class="flex items-center gap-2 cursor-pointer">
+                            <input type="checkbox" v-model="dbSourceForm.is_default" class="w-4 h-4 text-blue-600 rounded">
+                            <span class="text-sm text-gray-600">设为默认数据源</span>
+                        </label>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">描述</label>
+                        <textarea v-model="dbSourceForm.description" rows="2" class="w-full px-3 py-2 border rounded-lg"></textarea>
+                    </div>
+                </div>
+                <div class="flex justify-end gap-3 mt-6">
+                    <button @click="showDBSourceModal = false" class="px-4 py-2 text-gray-600 hover:text-gray-800">取消</button>
+                    <button @click="testDBSourceConnectionFromForm()" :disabled="testingModal" class="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700">
+                        {{ testingModal ? '测试中...' : '测试连接' }}
+                    </button>
+                    <button @click="saveDBSource()" :disabled="savingDBSource" class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">
+                        {{ savingDBSource ? '保存中...' : '保存' }}
+                    </button>
+                </div>
+            </div>
         </div>
 
         <!-- Toast Notification -->
@@ -415,6 +588,31 @@
                 const excludeSystemSQL = ref(true);
                 const loadingRules = ref(false);
                 const analysisResult = ref(null);
+                // DB Source Management
+                const dbSources = ref([]);
+                const loadingDBSources = ref(false);
+                const dbSourceFilter = ref({ name: '', host: '', db_type: '' });
+                const showDBSourceModal = ref(false);
+                const editingDBSource = ref(null);
+                const dbSourceForm = ref({
+                    name: '',
+                    db_type: 'oracle',
+                    host: '',
+                    port: 1521,
+                    connection_mode: 'service_name',
+                    service_name: '',
+                    sid: '',
+                    username: '',
+                    password: '',
+                    description: '',
+                    is_default: false
+                });
+                const testingSource = ref(null);
+                const testingModal = ref(false);
+                const savingDBSource = ref(false);
+                // Selected sources for collection and analysis
+                const selectedCollectionSource = ref('');
+                const selectedAnalyzeSource = ref('');
                 const collectedSQLs = ref([]);
                 const rules = ref([]);
                 const toasts = ref([]);
@@ -424,6 +622,7 @@
                 const menuItems = [
                     { key: 'analyze', label: 'SQL 分析', icon: 'M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z' },
                     { key: 'collection', label: 'SQL 采集', icon: 'M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4' },
+                    { key: 'db_sources', label: '数据源管理', icon: 'M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4' },
                     { key: 'rules', label: '规则配置', icon: 'M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2' }
                 ];
 
@@ -459,12 +658,17 @@
                         showToast('请输入 SQL 语句', 'error');
                         return;
                     }
+                    if (!selectedAnalyzeSource.value) {
+                        showToast('请先选择数据源', 'error');
+                        return;
+                    }
                     analyzing.value = true;
                     try {
                         const res = await fetch('/api/analyze/single', {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
                             body: JSON.stringify({
+                                db_source_id: selectedAnalyzeSource.value,
                                 sql_text: sqlText.value,
                                 use_llm: useLLM.value,
                                 use_rules: useRules.value
@@ -483,9 +687,13 @@
                 // Analyze by SQL_ID
                 const analyzeBySqlId = async () => {
                     if (!sqlId.value.trim()) return;
+                    if (!selectedAnalyzeSource.value) {
+                        showToast('请先选择数据源', 'error');
+                        return;
+                    }
                     analyzing.value = true;
                     try {
-                        const res = await fetch(`/api/analyze/by-sql-id?sql_id=${encodeURIComponent(sqlId.value)}&use_llm=${useLLM.value}`, { method: 'POST' });
+                        const res = await fetch(`/api/analyze/by-sql-id?sql_id=${encodeURIComponent(sqlId.value)}&use_llm=${useLLM.value}&db_source_id=${selectedAnalyzeSource.value}`, { method: 'POST' });
                         if (!res.ok) throw new Error('分析失败');
                         analysisResult.value = await res.json();
                         showToast('分析完成', 'success');
@@ -505,6 +713,7 @@
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
                             body: JSON.stringify({
+                                db_source_id: selectedCollectionSource.value || undefined,
                                 top_n: collectionTopN.value,
                                 cpu_threshold_ms: 1000,
                                 elapsed_threshold_ms: 1000,
@@ -530,15 +739,26 @@
                     }
                 };
 
+                const onCollectionSourceChange = () => {
+                    // Source changed, could load stats or clear previous results
+                    collectedSQLs.value = [];
+                };
+
                 // Analyze collected SQL
                 const analyzeCollectedSQL = async (sql) => {
+                    // Set the analyze source to match collection source
+                    selectedAnalyzeSource.value = selectedCollectionSource.value;
                     if (sql.sql_id) {
                         // 如果有 SQL_ID，通过接口获取完整 SQL
                         try {
                             const res = await fetch('/api/collect/by-sql-id', {
                                 method: 'POST',
                                 headers: { 'Content-Type': 'application/json' },
-                                body: JSON.stringify({ sql_id: sql.sql_id, include_plan: false })
+                                body: JSON.stringify({
+                                    db_source_id: selectedCollectionSource.value,
+                                    sql_id: sql.sql_id,
+                                    include_plan: false
+                                })
                             });
                             if (res.ok) {
                                 const data = await res.json();
@@ -664,6 +884,9 @@
                     if (key === 'rules' && rules.value.length === 0) {
                         loadRules();
                     }
+                    if (key === 'db_sources') {
+                        loadDBSources();
+                    }
                 };
                 const getRiskClass = (level) => ({
                     'CRITICAL': 'bg-red-100 text-red-700',
@@ -679,20 +902,215 @@
                     'low': 'bg-green-100 text-green-700'
                 })[severity] || 'bg-gray-100 text-gray-700';
 
-                onMounted(() => {
+                onMounted(async () => {
                     checkHealth();
                     setInterval(checkHealth, 30000);
                     if (activeMenu.value === 'rules') loadRules();
+                    if (activeMenu.value === 'db_sources') loadDBSources();
+                    // Load DB sources for selectors
+                    await loadDBSources();
+                    // Set default source if available
+                    if (dbSources.value.length > 0) {
+                        const defaultSource = dbSources.value.find(s => s.is_default);
+                        if (defaultSource) {
+                            selectedCollectionSource.value = defaultSource.id;
+                            selectedAnalyzeSource.value = defaultSource.id;
+                        } else {
+                            selectedCollectionSource.value = dbSources.value[0].id;
+                            selectedAnalyzeSource.value = dbSources.value[0].id;
+                        }
+                    }
                 });
+
+                // DB Source methods
+                const loadDBSources = async () => {
+                    loadingDBSources.value = true;
+                    try {
+                        const params = new URLSearchParams();
+                        if (dbSourceFilter.value.name) params.append('name', dbSourceFilter.value.name);
+                        if (dbSourceFilter.value.host) params.append('host', dbSourceFilter.value.host);
+                        if (dbSourceFilter.value.db_type) params.append('db_type', dbSourceFilter.value.db_type);
+                        const res = await fetch(`/api/db-sources?${params}`);
+                        if (!res.ok) throw new Error('加载失败');
+                        const data = await res.json();
+                        dbSources.value = data.items;
+                    } catch (e) {
+                        showToast(e.message, 'error');
+                    } finally {
+                        loadingDBSources.value = false;
+                    }
+                };
+
+                const openDBSourceModal = (source = null) => {
+                    if (source) {
+                        editingDBSource.value = source;
+                        dbSourceForm.value = {
+                            name: source.name,
+                            db_type: source.db_type,
+                            host: source.host,
+                            port: source.port,
+                            connection_mode: source.service_name ? 'service_name' : 'sid',
+                            service_name: source.service_name || '',
+                            sid: source.sid || '',
+                            username: source.username,
+                            password: '',
+                            description: source.description || '',
+                            is_default: source.is_default
+                        };
+                    } else {
+                        editingDBSource.value = null;
+                        dbSourceForm.value = {
+                            name: '',
+                            db_type: 'oracle',
+                            host: '',
+                            port: 1521,
+                            connection_mode: 'service_name',
+                            service_name: '',
+                            sid: '',
+                            username: '',
+                            password: '',
+                            description: '',
+                            is_default: false
+                        };
+                    }
+                    showDBSourceModal.value = true;
+                };
+
+                const saveDBSource = async () => {
+                    const form = dbSourceForm.value;
+                    // Password is required only when creating, not when editing (preserve existing)
+                    if (!form.name || !form.host || !form.username || (!editingDBSource.value && !form.password)) {
+                        showToast('请填写必填项', 'error');
+                        return;
+                    }
+                    savingDBSource.value = true;
+                    try {
+                        const payload = {
+                            name: form.name,
+                            db_type: form.db_type,
+                            host: form.host,
+                            port: form.port,
+                            username: form.username,
+                            password: form.password || undefined,
+                            description: form.description,
+                            is_default: form.is_default
+                        };
+                        if (form.db_type === 'oracle') {
+                            if (form.connection_mode === 'service_name') {
+                                payload.service_name = form.service_name;
+                            } else {
+                                payload.sid = form.sid;
+                            }
+                        }
+                        const url = editingDBSource.value
+                            ? `/api/db-sources/${editingDBSource.value.id}`
+                            : '/api/db-sources';
+                        const method = editingDBSource.value ? 'PUT' : 'POST';
+                        const res = await fetch(url, {
+                            method,
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify(payload)
+                        });
+                        if (!res.ok) throw new Error('保存失败');
+                        showToast(editingDBSource.value ? '更新成功' : '创建成功', 'success');
+                        showDBSourceModal.value = false;
+                        loadDBSources();
+                    } catch (e) {
+                        showToast(e.message, 'error');
+                    } finally {
+                        savingDBSource.value = false;
+                    }
+                };
+
+                const deleteDBSource = async (source) => {
+                    if (!confirm(`确定删除数据源 "${source.name}" 吗？`)) return;
+                    try {
+                        const res = await fetch(`/api/db-sources/${source.id}`, { method: 'DELETE' });
+                        if (!res.ok) throw new Error('删除失败');
+                        showToast('删除成功', 'success');
+                        loadDBSources();
+                    } catch (e) {
+                        showToast(e.message, 'error');
+                    }
+                };
+
+                const testDBSourceConnection = async (source) => {
+                    testingSource.value = source.id;
+                    try {
+                        const res = await fetch(`/api/db-sources/${source.id}/test`, { method: 'POST' });
+                        const result = await res.json();
+                        if (result.success) {
+                            showToast(`连接成功: ${result.version}`, 'success');
+                        } else {
+                            showToast(`连接失败: ${result.message}`, 'error');
+                        }
+                    } catch (e) {
+                        showToast(`连接失败: ${e.message}`, 'error');
+                    } finally {
+                        testingSource.value = null;
+                    }
+                };
+
+                const testDBSourceConnectionFromForm = async () => {
+                    const form = dbSourceForm.value;
+                    if (!form.host || !form.username || !form.password) {
+                        showToast('请先填写连接信息', 'error');
+                        return;
+                    }
+                    testingModal.value = true;
+                    try {
+                        // Test with temporary payload
+                        const payload = {
+                            name: 'test',
+                            db_type: form.db_type,
+                            host: form.host,
+                            port: form.port,
+                            username: form.username,
+                            password: form.password
+                        };
+                        if (form.db_type === 'oracle') {
+                            if (form.connection_mode === 'service_name') {
+                                payload.service_name = form.service_name;
+                            } else {
+                                payload.sid = form.sid;
+                            }
+                        }
+                        // Use a test endpoint - we'll create a test-connection endpoint
+                        const res = await fetch('/api/db-sources', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify(payload)
+                        });
+                        if (res.ok) {
+                            const data = await res.json();
+                            // Delete the test source
+                            await fetch(`/api/db-sources/${data.id}`, { method: 'DELETE' });
+                            showToast('连接成功', 'success');
+                        } else {
+                            const err = await res.json();
+                            showToast(`连接失败: ${err.detail}`, 'error');
+                        }
+                    } catch (e) {
+                        showToast(`连接失败: ${e.message}`, 'error');
+                    } finally {
+                        testingModal.value = false;
+                    }
+                };
 
                 return {
                     activeMenu, oracleConnected, analyzeMode, sqlText, sqlId,
                     useLLM, useRules, analyzing, exportingPDF, collecting, collectionTopN, collectionError, excludeSystemSQL, loadingRules,
                     analysisResult, collectedSQLs, rules, toasts, fileInput,
+                    // DB Sources
+                    dbSources, loadingDBSources, dbSourceFilter, showDBSourceModal, editingDBSource, dbSourceForm, testingSource, testingModal, savingDBSource,
+                    selectedCollectionSource, selectedAnalyzeSource,
+                    // Menu & Methods
                     menuItems, inputModes,
-                    analyzeSQL, analyzeBySqlId, collectSlowSQLs, analyzeCollectedSQL,
+                    analyzeSQL, analyzeBySqlId, collectSlowSQLs, analyzeCollectedSQL, onCollectionSourceChange,
                     loadRules, toggleRule, triggerFileUpload, handleFileUpload,
-                    getRiskClass, getSeverityClass, handleMenuClick, copyToClipboard, exportToPDF
+                    getRiskClass, getSeverityClass, handleMenuClick, copyToClipboard, exportToPDF,
+                    // DB Source Methods
+                    loadDBSources, openDBSourceModal, saveDBSource, deleteDBSource, testDBSourceConnection, testDBSourceConnectionFromForm
                 };
             }
         }).mount('#app');

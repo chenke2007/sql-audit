@@ -18,6 +18,8 @@ from app.core import rule_engine, sql_analyzer, preprocess_sql
 from app.core.pdf_exporter import pdf_exporter
 from app.oracle.client import oracle_client, OracleConnectionError, OracleQueryError
 from app.oracle.collector import SQLCollector
+from app.core.dynamic_db_client import DynamicOracleClient
+from app.core.database import DBSourceManager
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/analyze", tags=["SQL分析"])
@@ -27,6 +29,7 @@ router = APIRouter(prefix="/api/analyze", tags=["SQL分析"])
 
 class AnalyzeRequest(BaseModel):
     """SQL 分析请求"""
+    db_source_id: Optional[str] = Field(None, description="数据源ID，不传则使用默认数据源")
     sql_text: str = Field(..., min_length=1, description="SQL语句文本")
     sql_id: Optional[str] = Field(None, description="可选的SQL ID")
     use_llm: bool = Field(True, description="是否使用LLM分析")
@@ -79,13 +82,16 @@ class BatchAnalyzeResponse(BaseModel):
 
 # ========== 辅助函数 ==========
 
-def _get_execution_plan(sql_id: str) -> Optional[List[Dict]]:
+def _get_execution_plan(sql_id: str, client=None) -> Optional[List[Dict]]:
     """获取 SQL 的执行计划"""
-    if not oracle_client.is_connected:
-        return None
+    # 使用传入的客户端或默认客户端
+    if client is None:
+        if not oracle_client.is_connected:
+            return None
+        client = oracle_client
 
     try:
-        collector = SQLCollector(oracle_client)
+        collector = SQLCollector(client)
         plan = collector.get_execution_plan(sql_id)
         return plan
     except Exception as e:
@@ -93,15 +99,20 @@ def _get_execution_plan(sql_id: str) -> Optional[List[Dict]]:
         return None
 
 
-def _get_table_metadata(tables: List[str]) -> Dict[str, Any]:
+def _get_table_metadata(tables: List[str], client=None) -> Dict[str, Any]:
     """获取表元数据"""
-    if not oracle_client.is_connected or not tables:
+    # 使用传入的客户端或默认客户端
+    if client is None:
+        if not oracle_client.is_connected or not tables:
+            return {}
+        client = oracle_client
+    elif not tables:
         return {}
 
     from app.oracle.metadata import MetadataCollector
 
     metadata = {}
-    collector = MetadataCollector(oracle_client)
+    collector = MetadataCollector(client)
 
     for table in tables[:5]:  # 限制最多5张表
         try:
@@ -133,182 +144,178 @@ async def analyze_sql(request: AnalyzeRequest):
     单条 SQL 分析
 
     结合规则引擎和 LLM 对 SQL 进行全面分析。
+    支持通过 db_source_id 指定数据源，不传则使用默认数据源。
     """
-    # 预处理 SQL
+    # 创建动态客户端
+    client = None
     try:
-        parsed = preprocess_sql(request.sql_text)
-    except Exception as e:
-        logger.error(f"SQL 预处理失败: {e}")
-        raise HTTPException(status_code=400, detail=f"SQL 解析失败: {e}")
+        client = DynamicOracleClient()
+        client.connect_to_source(request.db_source_id)
 
-    result = AnalysisResultResponse(
-        sql_id=request.sql_id,
-        sql_type=parsed.sql_type.value,
-        tables=list(parsed.tables),
-        rule_violations=[],
-        recommendations=[]
-    )
-
-    # 规则引擎分析
-    rule_result = None
-    if request.use_rules:
+        # 预处理 SQL
         try:
-            context = {}
-
-            # 如果有 SQL ID，获取执行计划
-            if request.include_plan and request.sql_id:
-                plan = _get_execution_plan(request.sql_id)
-                if plan:
-                    context["execution_plan"] = plan
-
-            # 获取表元数据
-            if parsed.tables:
-                metadata = _get_table_metadata(list(parsed.tables))
-                if metadata:
-                    context["table_metadata"] = metadata
-
-            rule_result = rule_engine.analyze(request.sql_text, request.sql_id, context)
-
-            # 转换违规记录
-            for v in rule_result.violations:
-                result.rule_violations.append(RuleViolationResponse(
-                    rule_id=v.rule_id,
-                    rule_name=v.rule_name,
-                    category=v.category.value,
-                    severity=v.severity.value,
-                    message=v.message,
-                    suggestion=v.suggestion,
-                    location=v.location
-                ))
-
+            parsed = preprocess_sql(request.sql_text)
         except Exception as e:
-            logger.error(f"规则引擎分析失败: {e}")
+            logger.error(f"SQL 预处理失败: {e}")
+            raise HTTPException(status_code=400, detail=f"SQL 解析失败: {e}")
 
-    # LLM 分析
-    if request.use_llm:
-        try:
-            # 准备执行计划和元数据
-            execution_plan = None
-            table_metadata = None
+        result = AnalysisResultResponse(
+            sql_id=request.sql_id,
+            sql_type=parsed.sql_type.value,
+            tables=list(parsed.tables),
+            rule_violations=[],
+            recommendations=[]
+        )
 
-            if request.include_plan and request.sql_id:
-                execution_plan = _get_execution_plan(request.sql_id)
+        # 规则引擎分析
+        rule_result = None
+        if request.use_rules:
+            try:
+                context = {}
 
-            if parsed.tables:
-                table_metadata = _get_table_metadata(list(parsed.tables))
+                # 如果有 SQL ID，获取执行计划
+                if request.include_plan and request.sql_id:
+                    plan = _get_execution_plan(request.sql_id, client)
+                    if plan:
+                        context["execution_plan"] = plan
 
-            # 准备规则结果
-            rule_result_dict = None
-            if rule_result:
-                rule_result_dict = {
-                    "violations": [
-                        {
-                            "rule_name": v.rule_name,
-                            "category": v.category.value,
-                            "severity": v.severity.value,
-                            "message": v.message,
-                            "suggestion": v.suggestion
-                        }
-                        for v in rule_result.violations
-                    ]
-                }
+                # 获取表元数据
+                if parsed.tables:
+                    metadata = _get_table_metadata(list(parsed.tables), client)
+                    if metadata:
+                        context["table_metadata"] = metadata
 
-            analysis = await sql_analyzer.analyze(
-                sql_text=request.sql_text,
-                sql_id=request.sql_id,
-                execution_plan=execution_plan,
-                table_metadata=table_metadata,
-                rule_result=rule_result_dict
-            )
+                rule_result = rule_engine.analyze(request.sql_text, request.sql_id, context)
 
-            llm_data = analysis.get("llm_analysis", {})
-            result.llm_analysis = LLMAnalysisResponse(
-                summary=llm_data.get("summary", ""),
-                issues=llm_data.get("issues", []),
-                optimization_suggestions=llm_data.get("optimization_suggestions", []),
-                rewrite_suggestions=llm_data.get("rewrite_suggestions", []),
-                index_suggestions=llm_data.get("index_suggestions", []),
-                confidence=llm_data.get("confidence", "medium")
-            )
+                # 转换违规记录
+                for v in rule_result.violations:
+                    result.rule_violations.append(RuleViolationResponse(
+                        rule_id=v.rule_id,
+                        rule_name=v.rule_name,
+                        category=v.category.value,
+                        severity=v.severity.value,
+                        message=v.message,
+                        suggestion=v.suggestion,
+                        location=v.location
+                    ))
 
-            # 合并推荐
-            result.recommendations = analysis.get("combined_recommendations", [])
+            except Exception as e:
+                logger.error(f"规则引擎分析失败: {e}")
 
-        except Exception as e:
-            logger.error(f"LLM 分析失败: {e}")
-            # LLM 失败时不阻断，返回规则引擎结果
+        # LLM 分析
+        if request.use_llm:
+            try:
+                # 准备执行计划和元数据
+                execution_plan = None
+                table_metadata = None
 
-    # 计算风险等级
-    result.risk_level = _calculate_risk_level(result.rule_violations, result.llm_analysis)
+                if request.include_plan and request.sql_id:
+                    execution_plan = _get_execution_plan(request.sql_id, client)
 
-    return result
+                if parsed.tables:
+                    table_metadata = _get_table_metadata(list(parsed.tables), client)
 
+                # 准备规则结果
+                rule_result_dict = None
+                if rule_result:
+                    rule_result_dict = {
+                        "violations": [
+                            {
+                                "rule_name": v.rule_name,
+                                "category": v.category.value,
+                                "severity": v.severity.value,
+                                "message": v.message,
+                                "suggestion": v.suggestion
+                            }
+                            for v in rule_result.violations
+                        ]
+                    }
 
-def _calculate_risk_level(violations: List[RuleViolationResponse], llm_analysis: Optional[LLMAnalysisResponse]) -> str:
-    """计算风险等级"""
-    severity_scores = {"critical": 4, "high": 3, "medium": 2, "low": 1}
-    max_score = 0
+                analysis = await sql_analyzer.analyze(
+                    sql_text=request.sql_text,
+                    sql_id=request.sql_id,
+                    execution_plan=execution_plan,
+                    table_metadata=table_metadata,
+                    rule_result=rule_result_dict
+                )
 
-    # 检查规则违规
-    for v in violations:
-        score = severity_scores.get(v.severity.lower(), 0)
-        max_score = max(max_score, score)
+                llm_data = analysis.get("llm_analysis", {})
+                result.llm_analysis = LLMAnalysisResponse(
+                    summary=llm_data.get("summary", ""),
+                    issues=llm_data.get("issues", []),
+                    optimization_suggestions=llm_data.get("optimization_suggestions", []),
+                    rewrite_suggestions=llm_data.get("rewrite_suggestions", []),
+                    index_suggestions=llm_data.get("index_suggestions", []),
+                    confidence=llm_data.get("confidence", "medium")
+                )
 
-    # 检查 LLM 分析的问题
-    if llm_analysis and llm_analysis.issues:
-        for issue in llm_analysis.issues:
-            severity = issue.get("severity", "").lower()
-            score = severity_scores.get(severity, 0)
-            max_score = max(max_score, score)
+                # 合并推荐
+                result.recommendations = analysis.get("combined_recommendations", [])
 
-    # 映射风险等级
-    if max_score >= 4:
-        return "CRITICAL"
-    elif max_score >= 3:
-        return "HIGH"
-    elif max_score >= 2:
-        return "MEDIUM"
-    elif max_score >= 1:
-        return "LOW"
-    return "LOW"
+            except Exception as e:
+                logger.error(f"LLM 分析失败: {e}")
+                # LLM 失败时不阻断，返回规则引擎结果
+
+        # 计算风险等级
+        result.risk_level = _calculate_risk_level(result.rule_violations, result.llm_analysis)
+
+        return result
+
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    finally:
+        if client:
+            client.close()
 
 
 @router.post("/by-sql-id")
-async def analyze_by_sql_id(sql_id: str, use_llm: bool = True):
+async def analyze_by_sql_id(
+    sql_id: str,
+    use_llm: bool = True,
+    db_source_id: Optional[str] = None
+):
     """
     通过 SQL_ID 分析 SQL
 
     自动从数据库获取 SQL 文本和执行计划进行分析。
+    支持通过 db_source_id 指定数据源，不传则使用默认数据源。
     """
-    if not oracle_client.is_connected:
-        raise HTTPException(status_code=503, detail="Oracle数据库未连接")
-
     try:
-        collector = SQLCollector(oracle_client)
-        sql_obj = collector.get_sql_by_id(sql_id)
+        # 创建动态客户端
+        client = DynamicOracleClient()
+        client.connect_to_source(db_source_id)
 
-        if not sql_obj:
-            raise HTTPException(
-                status_code=404,
-                detail=f"SQL_ID {sql_id} 未找到"
+        try:
+            from app.oracle.collector import SQLCollector
+            collector = SQLCollector(client)
+            sql_obj = collector.get_sql_by_id(sql_id)
+
+            if not sql_obj:
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"SQL_ID {sql_id} 未找到"
+                )
+
+            # 调用单条分析
+            request = AnalyzeRequest(
+                db_source_id=db_source_id,
+                sql_text=sql_obj.sql_text,
+                sql_id=sql_id,
+                use_llm=use_llm,
+                include_plan=True
             )
 
-        # 调用单条分析
-        request = AnalyzeRequest(
-            sql_text=sql_obj.sql_text,
-            sql_id=sql_id,
-            use_llm=use_llm,
-            include_plan=True
-        )
+            return await analyze_sql(request)
+        finally:
+            client.close()
 
-        return await analyze_sql(request)
-
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except HTTPException:
         raise
     except Exception as e:
         logger.error(f"SQL_ID 分析失败: {e}")
         raise HTTPException(status_code=500, detail=f"分析失败: {e}")
-
 
 @router.post("/batch", response_model=BatchAnalyzeResponse)
 async def analyze_batch(request: BatchAnalyzeRequest):

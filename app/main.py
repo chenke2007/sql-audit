@@ -15,7 +15,7 @@ from fastapi.responses import FileResponse
 
 from app.config import settings
 from app.oracle.client import oracle_client, OracleConnectionError
-from app.api.routes import collect_router, analyze_router
+from app.api.routes import collect_router, analyze_router, db_sources_router
 
 # 配置日志
 logging.basicConfig(
@@ -68,6 +68,7 @@ app.add_middleware(
 # 注册API路由
 app.include_router(collect_router)
 app.include_router(analyze_router)
+app.include_router(db_sources_router)
 
 
 # 静态文件服务

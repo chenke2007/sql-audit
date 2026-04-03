@@ -14,6 +14,8 @@ from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile
 from pydantic import BaseModel, Field
 
 from app.config import settings
+from app.core.dynamic_db_client import DynamicOracleClient
+from app.core.database import DBSourceManager
 from app.oracle.client import oracle_client, OracleConnectionError, OracleQueryError
 from app.oracle.collector import SQLCollector, SQLObject
 from app.oracle.metadata import MetadataCollector
@@ -44,6 +46,7 @@ class SQLObjectResponse(BaseModel):
 
 class SlowSQLCollectionRequest(BaseModel):
     """慢SQL采集请求"""
+    db_source_id: Optional[str] = Field(None, description="数据源ID，不传则使用默认数据源")
     top_n: int = Field(20, ge=1, le=100, description="获取前N条")
     cpu_threshold_ms: int = Field(1000, ge=0, description="CPU时间阈值(毫秒)")
     elapsed_threshold_ms: int = Field(1000, ge=0, description="执行时间阈值(毫秒)")
@@ -53,6 +56,7 @@ class SlowSQLCollectionRequest(BaseModel):
 
 class SQLIdQueryRequest(BaseModel):
     """SQL_ID查询请求"""
+    db_source_id: Optional[str] = Field(None, description="数据源ID，不传则使用默认数据源")
     sql_id: str = Field(..., min_length=1, description="SQL标识符")
     include_plan: bool = Field(True, description="是否获取执行计划")
     include_metadata: bool = Field(True, description="是否获取元数据")
@@ -60,6 +64,7 @@ class SQLIdQueryRequest(BaseModel):
 
 class SQLUploadRequest(BaseModel):
     """SQL文本上传请求"""
+    db_source_id: Optional[str] = Field(None, description="数据源ID，不传则使用默认数据源")
     sql_text: str = Field(..., min_length=1, description="SQL文本")
     include_plan: bool = Field(True, description="是否获取执行计划")
 
@@ -117,39 +122,45 @@ async def collect_slow_sqls(request: SlowSQLCollectionRequest):
     自动采集慢SQL
 
     从v$sql中按资源消耗排序，获取Top N慢SQL。
+    支持通过 db_source_id 指定数据源，不传则使用默认数据源。
     """
-    if not oracle_client.is_connected:
-        raise HTTPException(status_code=503, detail="Oracle数据库未连接")
-
     try:
-        collector = SQLCollector(oracle_client)
-        results = collector.collect_slow_sqls(
-            top_n=request.top_n,
-            cpu_threshold_ms=request.cpu_threshold_ms,
-            elapsed_threshold_ms=request.elapsed_threshold_ms,
-            buffer_gets_threshold=request.buffer_gets_threshold,
-            exclude_system=request.exclude_system
-        )
+        # 创建动态客户端
+        client = DynamicOracleClient()
+        client.connect_to_source(request.db_source_id)
 
-        # 获取执行计划
-        for obj in results:
-            if obj.sql_id:
-                try:
-                    obj.execution_plan = collector.get_execution_plan(obj.sql_id)
-                except Exception as e:
-                    logger.warning(f"获取执行计划失败 {obj.sql_id}: {e}")
+        try:
+            # 创建使用动态客户端的采集器
+            from app.oracle.collector import SQLCollector
+            collector = SQLCollector(client)
 
-        return [sql_object_to_response(r) for r in results]
+            results = collector.collect_slow_sqls(
+                top_n=request.top_n,
+                cpu_threshold_ms=request.cpu_threshold_ms,
+                elapsed_threshold_ms=request.elapsed_threshold_ms,
+                buffer_gets_threshold=request.buffer_gets_threshold,
+                exclude_system=request.exclude_system
+            )
 
-    except OracleQueryError as e:
-        logger.error(f"采集慢SQL失败 (OracleQueryError): {e}")
-        raise HTTPException(status_code=500, detail=f"数据库查询失败: {e}")
+            # 获取执行计划
+            for obj in results:
+                if obj.sql_id:
+                    try:
+                        obj.execution_plan = collector.get_execution_plan(obj.sql_id)
+                    except Exception as e:
+                        logger.warning(f"获取执行计划失败 {obj.sql_id}: {e}")
+
+            return [sql_object_to_response(r) for r in results]
+        finally:
+            client.close()
+
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
-        logger.error(f"采集慢SQL失败 (Exception): {e}")
+        logger.error(f"采集慢SQL失败: {e}")
         import traceback
         logger.error(traceback.format_exc())
         raise HTTPException(status_code=500, detail=f"采集失败: {e}")
-
 
 @router.post("/by-sql-id", response_model=SQLObjectResponse)
 async def get_sql_by_id(request: SQLIdQueryRequest):
@@ -157,33 +168,40 @@ async def get_sql_by_id(request: SQLIdQueryRequest):
     根据SQL_ID查询SQL
 
     查询顺序: 1. v$sql (实时缓存) 2. AWR历史数据
+    支持通过 db_source_id 指定数据源，不传则使用默认数据源。
     """
-    if not oracle_client.is_connected:
-        raise HTTPException(status_code=503, detail="Oracle数据库未连接")
-
     try:
-        collector = SQLCollector(oracle_client)
-        result = collector.get_sql_by_id(request.sql_id)
+        # 创建动态客户端
+        client = DynamicOracleClient()
+        client.connect_to_source(request.db_source_id)
 
-        if not result:
-            raise HTTPException(
-                status_code=404,
-                detail=f"SQL_ID {request.sql_id} 在v$sql和AWR中都未找到"
-            )
+        try:
+            from app.oracle.collector import SQLCollector
+            collector = SQLCollector(client)
+            result = collector.get_sql_by_id(request.sql_id)
 
-        # 获取执行计划
-        if request.include_plan and result.sql_id:
-            result.execution_plan = collector.get_execution_plan(result.sql_id)
+            if not result:
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"SQL_ID {request.sql_id} 在v$sql和AWR中都未找到"
+                )
 
-        # 返回完整 SQL，不截断
-        return sql_object_to_response(result, truncate_sql=False)
+            # 获取执行计划
+            if request.include_plan and result.sql_id:
+                result.execution_plan = collector.get_execution_plan(result.sql_id)
 
+            # 返回完整 SQL，不截断
+            return sql_object_to_response(result, truncate_sql=False)
+        finally:
+            client.close()
+
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except HTTPException:
         raise
     except Exception as e:
         logger.error(f"SQL_ID查询失败: {e}")
         raise HTTPException(status_code=500, detail=f"查询失败: {e}")
-
 
 @router.post("/upload-sql", response_model=SQLObjectResponse)
 async def upload_sql(request: SQLUploadRequest):
@@ -191,47 +209,53 @@ async def upload_sql(request: SQLUploadRequest):
     上传SQL文本进行分析
 
     在测试库执行EXPLAIN PLAN获取执行计划。
+    支持通过 db_source_id 指定数据源，不传则使用默认数据源。
     """
-    if not oracle_client.is_connected:
-        raise HTTPException(status_code=503, detail="Oracle数据库未连接")
-
     try:
-        collector = SQLCollector(oracle_client)
+        # 创建动态客户端
+        client = DynamicOracleClient()
+        client.connect_to_source(request.db_source_id)
 
-        # 生成执行计划
-        plan = None
-        if request.include_plan:
-            plan = collector.explain_sql(request.sql_text)
+        try:
+            from app.oracle.collector import SQLCollector
+            collector = SQLCollector(client)
 
-        # 构建SQL对象
-        sql_obj = SQLObject(
-            sql_id=None,
-            sql_text=request.sql_text,
-            source="file_upload",
-            execution_stats=None,
-            execution_plan=plan
-        )
+            # 生成执行计划
+            plan = None
+            if request.include_plan:
+                plan = collector.explain_sql(request.sql_text)
 
-        return sql_object_to_response(sql_obj)
+            # 构建SQL对象
+            sql_obj = SQLObject(
+                sql_id=None,
+                sql_text=request.sql_text,
+                source="file_upload",
+                execution_stats=None,
+                execution_plan=plan
+            )
 
-    except OracleQueryError as e:
+            return sql_object_to_response(sql_obj)
+        finally:
+            client.close()
+
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
         logger.error(f"SQL上传处理失败: {e}")
         raise HTTPException(status_code=400, detail=f"SQL处理失败: {e}")
-
 
 @router.post("/upload-file", response_model=List[SQLObjectResponse])
 async def upload_sql_file(
     file: UploadFile = File(..., description="SQL文件 (.sql, .txt)"),
-    include_plan: bool = Form(True, description="是否获取执行计划")
+    include_plan: bool = Form(True, description="是否获取执行计划"),
+    db_source_id: Optional[str] = Form(None, description="数据源ID，不传则使用默认数据源")
 ):
     """
     上传SQL文件进行分析
 
     支持多行SQL，按分号分割。
+    支持通过 db_source_id 指定数据源，不传则使用默认数据源。
     """
-    if not oracle_client.is_connected:
-        raise HTTPException(status_code=503, detail="Oracle数据库未连接")
-
     # 检查文件类型
     allowed_extensions = {".sql", ".txt"}
     file_ext = file.filename.lower()
@@ -242,8 +266,8 @@ async def upload_sql_file(
         )
 
     try:
-        content = await file.read()
-        text = content.decode("utf-8")
+        file_content = await file.read()
+        text = file_content.decode("utf-8")
 
         # 分割SQL语句
         sql_statements = [s.strip() for s in text.split(";") if s.strip()]
@@ -251,32 +275,41 @@ async def upload_sql_file(
         if not sql_statements:
             raise HTTPException(status_code=400, detail="文件中未找到有效的SQL语句")
 
-        collector = SQLCollector(oracle_client)
-        results = []
+        # 创建动态客户端
+        client = DynamicOracleClient()
+        client.connect_to_source(db_source_id)
 
-        for sql_text in sql_statements[:10]:  # 限制最多10条
-            # 获取执行计划
-            plan = None
-            if include_plan:
-                plan = collector.explain_sql(sql_text)
+        try:
+            from app.oracle.collector import SQLCollector
+            collector = SQLCollector(client)
+            results = []
 
-            sql_obj = SQLObject(
-                sql_id=None,
-                sql_text=sql_text,
-                source="file_upload",
-                execution_stats=None,
-                execution_plan=plan
-            )
-            results.append(sql_object_to_response(sql_obj))
+            for sql_text in sql_statements[:10]:  # 限制最多10条
+                # 获取执行计划
+                plan = None
+                if include_plan:
+                    plan = collector.explain_sql(sql_text)
 
-        return results
+                sql_obj = SQLObject(
+                    sql_id=None,
+                    sql_text=sql_text,
+                    source="file_upload",
+                    execution_stats=None,
+                    execution_plan=plan
+                )
+                results.append(sql_object_to_response(sql_obj))
 
+            return results
+        finally:
+            client.close()
+
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except HTTPException:
         raise
     except Exception as e:
         logger.error(f"文件上传处理失败: {e}")
         raise HTTPException(status_code=500, detail=f"文件处理失败: {e}")
-
 
 @router.get("/metadata/{table_name}")
 async def get_table_metadata(table_name: str, owner: Optional[str] = None):
