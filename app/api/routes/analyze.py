@@ -136,6 +136,34 @@ def _get_table_metadata(tables: List[str], client=None) -> Dict[str, Any]:
     return metadata
 
 
+def _calculate_risk_level(violations, llm_analysis) -> str:
+    """计算风险等级"""
+    severity_scores = {"critical": 4, "high": 3, "medium": 2, "low": 1}
+    max_score = 0
+
+    # 检查规则违规
+    for v in violations:
+        score = severity_scores.get(v.severity.lower(), 0)
+        max_score = max(max_score, score)
+
+    # 检查 LLM 分析的问题
+    if llm_analysis and hasattr(llm_analysis, 'issues') and llm_analysis.issues:
+        for issue in llm_analysis.issues:
+            severity = issue.get("severity", "").lower() if isinstance(issue, dict) else getattr(issue, 'severity', '').lower()
+            score = severity_scores.get(severity, 0)
+            max_score = max(max_score, score)
+
+    # 映射风险等级
+    if max_score >= 4:
+        return "CRITICAL"
+    elif max_score >= 3:
+        return "HIGH"
+    elif max_score >= 2:
+        return "MEDIUM"
+    else:
+        return "LOW"
+
+
 # ========== 路由 ==========
 
 @router.post("/single", response_model=AnalysisResultResponse)
