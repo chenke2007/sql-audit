@@ -168,18 +168,32 @@ class DynamicOracleClient:
             finally:
                 cursor.close()
 
-    def execute(self, sql: str, params: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
+    def execute(self, sql: str, params: Optional[Dict[str, Any]] = None, fetch_size: int = 1000):
         """
         执行查询（兼容 OracleClient 接口）
+
+        返回原始行元组列表，与 OracleClient.execute 保持一致。
+        SQLCollector 通过索引访问列。
 
         Args:
             sql: SQL 语句
             params: 查询参数
+            fetch_size: 单次获取行数
 
         Returns:
-            查询结果列表
+            查询结果元组列表
         """
-        return self.execute_query(sql, params)
+        with self._acquire_connection() as conn:
+            cursor = conn.cursor()
+            cursor.arraysize = fetch_size
+            try:
+                if params:
+                    cursor.execute(sql, params)
+                else:
+                    cursor.execute(sql)
+                return cursor.fetchall()
+            finally:
+                cursor.close()
 
     def get_execution_plan(self, sql_id: str) -> Optional[Dict[str, Any]]:
         """获取SQL执行计划"""
