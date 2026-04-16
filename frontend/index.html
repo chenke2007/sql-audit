@@ -8,6 +8,10 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- Vue 3 (Global build) -->
     <script src="/static/js/vue.global.prod.js"></script>
+    <!-- highlight.js for SQL syntax highlighting -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/sql.min.js"></script>
     <!-- Custom styles -->
     <style>
         [v-cloak] { display: none; }
@@ -15,6 +19,13 @@
         .fade-enter-from, .fade-leave-to { opacity: 0; }
         pre { white-space: pre-wrap; word-wrap: break-word; }
         .sql-code { font-family: 'Consolas', 'Monaco', monospace; }
+        /* SQL 语法高亮样式 */
+        .sql-editor { background-color: #f6f8fa; }
+        .sql-editor:focus { background-color: #fff; }
+        /* 菜单切换动画优化 */
+        .menu-transition { transition: all 0.15s ease; }
+        /* highlight.js 自定义 */
+        .hljs { background: #1e1e1e; border-radius: 0.5rem; padding: 1rem; }
     </style>
 </head>
 <body class="bg-gray-100 min-h-screen">
@@ -43,7 +54,7 @@
                         v-for="item in menuItems"
                         :key="item.key"
                         @click="handleMenuClick(item.key)"
-                        :class="['w-full text-left px-4 py-3 flex items-center gap-3 transition-colors rounded-lg', activeMenu === item.key ? 'bg-blue-50 text-blue-600' : 'text-gray-600 hover:bg-gray-50']"
+                        :class="['w-full text-left px-4 py-3 flex items-center gap-3 menu-transition rounded-lg', activeMenu === item.key ? 'bg-blue-50 text-blue-600' : 'text-gray-600 hover:bg-gray-50']"
                     >
                         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" :d="item.icon"></path>
@@ -92,9 +103,16 @@
                             <textarea
                                 v-model="sqlText"
                                 rows="8"
-                                placeholder="请输入需要分析的 SQL 语句..."
+                                placeholder="请输入需要分析的 SQL 语句...&#10;示例: SELECT id, name FROM users WHERE status = 'active'"
                                 class="w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sql-code text-sm"
+                                spellcheck="false"
                             ></textarea>
+                            <!-- 输入提示 -->
+                            <div class="mt-2 text-xs text-gray-500 flex items-center gap-4">
+                                <span v-if="!sqlText.trim()" class="text-orange-500">⚠ 请先输入 SQL 语句</span>
+                                <span v-else-if="!selectedAnalyzeSource" class="text-orange-500">⚠ 请先选择数据源</span>
+                                <span v-else class="text-green-600">✓ 准备就绪，点击"开始分析"</span>
+                            </div>
                             <div class="flex items-center justify-between mt-4">
                                 <div class="flex gap-4">
                                     <label class="flex items-center gap-2 cursor-pointer">
@@ -178,7 +196,7 @@
                         <!-- SQL Display -->
                         <div class="mb-6">
                             <h3 class="text-sm font-medium text-gray-700 mb-2">SQL 语句</h3>
-                            <pre class="bg-gray-900 text-gray-100 p-4 rounded-lg sql-code text-sm overflow-x-auto whitespace-pre-wrap break-all">{{ analysisResult.sql_text || sqlText }}</pre>
+                            <pre class="bg-gray-900 text-gray-100 p-4 rounded-lg sql-code text-sm overflow-x-auto whitespace-pre-wrap break-all"><code class="language-sql">{{ analysisResult.sql_text || sqlText }}</code></pre>
                         </div>
 
                         <!-- Rule Violations -->
@@ -668,6 +686,14 @@
                         if (!res.ok) throw new Error('分析失败');
                         analysisResult.value = await res.json();
                         showToast('分析完成', 'success');
+                        // SQL 语法高亮
+                        setTimeout(() => {
+                            if (typeof hljs !== 'undefined') {
+                                document.querySelectorAll('pre code.language-sql').forEach((block) => {
+                                    hljs.highlightElement(block);
+                                });
+                            }
+                        }, 100);
                     } catch (e) {
                         showToast(e.message, 'error');
                     } finally {
@@ -688,6 +714,14 @@
                         if (!res.ok) throw new Error('分析失败');
                         analysisResult.value = await res.json();
                         showToast('分析完成', 'success');
+                        // SQL 语法高亮
+                        setTimeout(() => {
+                            if (typeof hljs !== 'undefined') {
+                                document.querySelectorAll('pre code.language-sql').forEach((block) => {
+                                    hljs.highlightElement(block);
+                                });
+                            }
+                        }, 100);
                     } catch (e) {
                         showToast(e.message, 'error');
                     } finally {
@@ -880,12 +914,14 @@
 
                 // Menu click handler
                 const handleMenuClick = (key) => {
+                    // 立即切换菜单，提升响应速度
                     activeMenu.value = key;
+                    // 异步加载数据，不阻塞 UI
                     if (key === 'rules' && rules.value.length === 0) {
-                        loadRules();
+                        setTimeout(() => loadRules(), 0);
                     }
                     if (key === 'db_sources') {
-                        loadDBSources();
+                        setTimeout(() => loadDBSources(), 0);
                     }
                 };
                 const getRiskClass = (level) => ({
@@ -903,6 +939,10 @@
                 })[severity] || 'bg-gray-100 text-gray-700';
 
                 onMounted(async () => {
+                    // 初始化 highlight.js
+                    if (typeof hljs !== 'undefined') {
+                        hljs.configure({ languages: ['sql'] });
+                    }
                     checkHealth();
                     setInterval(checkHealth, 30000);
                     if (activeMenu.value === 'rules') loadRules();
