@@ -71,6 +71,15 @@ class DynamicOracleClient:
             logger.info(f"已连接到数据源: {source.name} ({source.host}:{source.port})")
             return True
 
+        except oracledb.Error as e:
+            error_msg = str(e)
+            if "DPY-3010" in error_msg:
+                raise ValueError(
+                    f"数据源 '{source.name}' 的 Oracle 版本太旧（低于 12.1），当前驱动不支持。"
+                    "请联系 DBA 升级数据库，或安装 Oracle Instant Client 启用 thick 模式。"
+                )
+            logger.error(f"连接数据源失败: {e}")
+            raise
         except Exception as e:
             logger.error(f"连接数据源失败: {e}")
             raise
