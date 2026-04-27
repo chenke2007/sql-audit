@@ -404,9 +404,7 @@ class DBSourceManager:
             if "DPY-3010" in error_msg:
                 return False, (
                     "连接失败: 该数据库的 Oracle 版本太旧（低于 12.1），"
-                    "当前使用的 python-oracledb thin 模式不支持此版本。\n"
-                    "解决方案: 请联系 DBA 升级数据库到 Oracle 12.1+，"
-                    "或在本机安装 Oracle Instant Client 以启用 thick 模式。"
+                    "当前使用的 python-oracledb thin 模式不支持此版本。"
                 )
             return False, f"连接失败: {error_msg}"
         except Exception as e:
