@@ -403,12 +403,12 @@ class DBSourceManager:
             # DPY-3010: 数据库版本太旧，thin 模式不支持
             if "DPY-3010" in error_msg:
                 return False, (
-                    "连接失败: 该数据库的 Oracle 版本太旧（低于 12.1），"
+                    "该数据库的 Oracle 版本太旧（低于 12.1），"
                     "当前使用的 python-oracledb thin 模式不支持此版本。"
                 )
-            return False, f"连接失败: {error_msg}"
+            return False, error_msg
         except Exception as e:
-            return False, f"连接失败: {str(e)}"
+            return False, str(e)
 
     @staticmethod
     def _test_mysql(source: DBSource) -> tuple[bool, str]:
