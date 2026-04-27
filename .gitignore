@@ -56,3 +56,12 @@ node_modules/
 package-lock.json
 yarn.lock
 .gstack/
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
+# Test artifacts
+EOF
+PYEOF
