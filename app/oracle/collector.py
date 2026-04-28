@@ -110,76 +110,78 @@ class SQLCollector:
                 AND sql_text NOT LIKE '%SYS.%'
                 AND command_type != 47
             )
-            SELECT
-                s.sql_id,
-                s.sql_text,
-                s.parsing_schema_name as schema,
-                s.executions,
-                s.cpu_time / 1000 as cpu_time_ms,
-                s.elapsed_time / 1000 as elapsed_time_ms,
-                s.buffer_gets,
-                s.disk_reads,
-                s.rows_processed,
-                s.last_active_time,
-                CASE WHEN t.total_cpu > 0 THEN ROUND(s.cpu_time * 100.0 / t.total_cpu, 1) ELSE 0 END as cpu_pct,
-                CASE WHEN t.total_elapsed > 0 THEN ROUND(s.elapsed_time * 100.0 / t.total_elapsed, 1) ELSE 0 END as elapsed_pct,
-                ROUND(s.elapsed_time / 1000000, 2) as elapsed_sec,
-                CASE WHEN s.executions > 0 THEN ROUND(s.elapsed_time / s.executions / 1000000, 3) ELSE 0 END as elapsed_per_exec_sec
-            FROM v$sql s
-            CROSS JOIN total_stats t
-            WHERE (s.cpu_time > :cpu_threshold
-               OR s.elapsed_time > :elapsed_threshold
-               OR s.buffer_gets > :buffer_gets_threshold)
-              AND s.parsing_schema_name NOT IN (
-                  'SYS', 'SYSTEM', 'DBSNMP', 'SYSMAN', 'OUTLN', 'MGMT_VIEW',
-                  'MDSYS', 'ORDSYS', 'EXFSYS', 'WMSYS', 'APPQOSSYS', 'XDB',
-                  'ANONYMOUS', 'XS$NULL', 'ORDDATA', 'ORDPLUGINS', 'SI_INFORMTN_SCHEMA',
-                  'OLAPSYS', 'OWBSYS', 'OWBSYS_AUDIT', 'APEX_PUBLIC_USER',
-                  'APEX_030200', 'FLOWS_FILES', 'SQLTXPLAIN', 'SQLTXADMIN'
-              )
-              AND s.sql_text NOT LIKE '%dbms_%'
-              AND s.sql_text NOT LIKE '%DBMS_%'
-              AND s.sql_text NOT LIKE '%sys.%'
-              AND s.sql_text NOT LIKE '%SYS.%'
-              AND s.sql_text NOT LIKE '%wri$_%'
-              AND s.sql_text NOT LIKE '%WRI$_%'
-              AND s.sql_text NOT LIKE '%wrr$_%'
-              AND s.sql_text NOT LIKE '%WRR$_%'
-              AND s.sql_text NOT LIKE '%optstat%'
-              AND s.sql_text NOT LIKE '%OPTSTAT%'
-              AND s.sql_text NOT LIKE '%wrh$_%'
-              AND s.sql_text NOT LIKE '%WRH$_%'
-              AND s.sql_text NOT LIKE '%v_$%'
-              AND s.sql_text NOT LIKE '%V_$%'
-              AND s.sql_text NOT LIKE '%x_$%'
-              AND s.sql_text NOT LIKE '%X_$%'
-              AND s.sql_text NOT LIKE '%prvt_%'
-              AND s.sql_text NOT LIKE '%PRVT_%'
-              AND s.sql_text NOT LIKE '%sqlt$%'
-              AND s.sql_text NOT LIKE '%SQLT$%'
-              AND s.command_type != 47  -- PL/SQL execute
-            ORDER BY s.cpu_time DESC
-            FETCH FIRST :top_n ROWS ONLY
+            SELECT * FROM (
+                SELECT
+                    s.sql_id,
+                    s.sql_text,
+                    s.parsing_schema_name as schema,
+                    s.executions,
+                    s.cpu_time / 1000 as cpu_time_ms,
+                    s.elapsed_time / 1000 as elapsed_time_ms,
+                    s.buffer_gets,
+                    s.disk_reads,
+                    s.rows_processed,
+                    s.last_active_time,
+                    CASE WHEN t.total_cpu > 0 THEN ROUND(s.cpu_time * 100.0 / t.total_cpu, 1) ELSE 0 END as cpu_pct,
+                    CASE WHEN t.total_elapsed > 0 THEN ROUND(s.elapsed_time * 100.0 / t.total_elapsed, 1) ELSE 0 END as elapsed_pct,
+                    ROUND(s.elapsed_time / 1000000, 2) as elapsed_sec,
+                    CASE WHEN s.executions > 0 THEN ROUND(s.elapsed_time / s.executions / 1000000, 3) ELSE 0 END as elapsed_per_exec_sec
+                FROM v$sql s
+                CROSS JOIN total_stats t
+                WHERE (s.cpu_time > :cpu_threshold
+                   OR s.elapsed_time > :elapsed_threshold
+                   OR s.buffer_gets > :buffer_gets_threshold)
+                  AND s.parsing_schema_name NOT IN (
+                      'SYS', 'SYSTEM', 'DBSNMP', 'SYSMAN', 'OUTLN', 'MGMT_VIEW',
+                      'MDSYS', 'ORDSYS', 'EXFSYS', 'WMSYS', 'APPQOSSYS', 'XDB',
+                      'ANONYMOUS', 'XS$NULL', 'ORDDATA', 'ORDPLUGINS', 'SI_INFORMTN_SCHEMA',
+                      'OLAPSYS', 'OWBSYS', 'OWBSYS_AUDIT', 'APEX_PUBLIC_USER',
+                      'APEX_030200', 'FLOWS_FILES', 'SQLTXPLAIN', 'SQLTXADMIN'
+                  )
+                  AND s.sql_text NOT LIKE '%dbms_%'
+                  AND s.sql_text NOT LIKE '%DBMS_%'
+                  AND s.sql_text NOT LIKE '%sys.%'
+                  AND s.sql_text NOT LIKE '%SYS.%'
+                  AND s.sql_text NOT LIKE '%wri$_%'
+                  AND s.sql_text NOT LIKE '%WRI$_%'
+                  AND s.sql_text NOT LIKE '%wrr$_%'
+                  AND s.sql_text NOT LIKE '%WRR$_%'
+                  AND s.sql_text NOT LIKE '%optstat%'
+                  AND s.sql_text NOT LIKE '%OPTSTAT%'
+                  AND s.sql_text NOT LIKE '%wrh$_%'
+                  AND s.sql_text NOT LIKE '%WRH$_%'
+                  AND s.sql_text NOT LIKE '%v_$%'
+                  AND s.sql_text NOT LIKE '%V_$%'
+                  AND s.sql_text NOT LIKE '%x_$%'
+                  AND s.sql_text NOT LIKE '%X_$%'
+                  AND s.sql_text NOT LIKE '%prvt_%'
+                  AND s.sql_text NOT LIKE '%PRVT_%'
+                  AND s.sql_text NOT LIKE '%sqlt$%'
+                  AND s.sql_text NOT LIKE '%SQLT$%'
+                  AND s.command_type != 47
+                ORDER BY s.cpu_time DESC
+            ) WHERE ROWNUM <= :top_n
             """
         else:
             # 不排除系统SQL（原始查询）
             sql = """
-            SELECT
-                sql_id,
-                sql_text,
-                executions,
-                cpu_time / 1000 as cpu_time_ms,
-                elapsed_time / 1000 as elapsed_time_ms,
-                buffer_gets,
-                disk_reads,
-                rows_processed,
-                last_active_time
-            FROM v$sql
-            WHERE cpu_time > :cpu_threshold
-               OR elapsed_time > :elapsed_threshold
-               OR buffer_gets > :buffer_gets_threshold
-            ORDER BY cpu_time DESC
-            FETCH FIRST :top_n ROWS ONLY
+            SELECT * FROM (
+                SELECT
+                    sql_id,
+                    sql_text,
+                    executions,
+                    cpu_time / 1000 as cpu_time_ms,
+                    elapsed_time / 1000 as elapsed_time_ms,
+                    buffer_gets,
+                    disk_reads,
+                    rows_processed,
+                    last_active_time
+                FROM v$sql
+                WHERE cpu_time > :cpu_threshold
+                   OR elapsed_time > :elapsed_threshold
+                   OR buffer_gets > :buffer_gets_threshold
+                ORDER BY cpu_time DESC
+            ) WHERE ROWNUM <= :top_n
             """
 
         try:
@@ -310,21 +312,22 @@ class SQLCollector:
         """从AWR历史表查询"""
         # 注意: 需要DBA_HIST_SQLSTAT的访问权限
         sql = """
-        SELECT
-            s.sql_id,
-            t.sql_text,
-            s.executions_total as executions,
-            s.cpu_time_total / 1000 as cpu_time_ms,
-            s.elapsed_time_total / 1000 as elapsed_time_ms,
-            s.buffer_gets_total as buffer_gets,
-            s.disk_reads_total as disk_reads,
-            s.rows_processed_total as rows_processed,
-            NULL as last_active_time
-        FROM dba_hist_sqlstat s
-        JOIN dba_hist_sqltext t ON s.sql_id = t.sql_id
-        WHERE s.sql_id = :sql_id
-        ORDER BY s.snap_id DESC
-        FETCH FIRST 1 ROWS ONLY
+        SELECT * FROM (
+            SELECT
+                s.sql_id,
+                t.sql_text,
+                s.executions_total as executions,
+                s.cpu_time_total / 1000 as cpu_time_ms,
+                s.elapsed_time_total / 1000 as elapsed_time_ms,
+                s.buffer_gets_total as buffer_gets,
+                s.disk_reads_total as disk_reads,
+                s.rows_processed_total as rows_processed,
+                NULL as last_active_time
+            FROM dba_hist_sqlstat s
+            JOIN dba_hist_sqltext t ON s.sql_id = t.sql_id
+            WHERE s.sql_id = :sql_id
+            ORDER BY s.snap_id DESC
+        ) WHERE ROWNUM <= 1
         """
 
         try:

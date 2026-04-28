@@ -30,6 +30,7 @@ router = APIRouter(prefix="/api/analyze", tags=["SQL分析"])
 class AnalyzeRequest(BaseModel):
     """SQL 分析请求"""
     db_source_id: Optional[str] = Field(None, description="数据源ID，不传则使用默认数据源")
+    schema: Optional[str] = Field(None, description="Schema/Owner，不传则使用SQL中指定的schema")
     sql_text: str = Field(..., min_length=1, description="SQL语句文本")
     sql_id: Optional[str] = Field(None, description="可选的SQL ID")
     use_llm: bool = Field(True, description="是否使用LLM分析")
@@ -99,8 +100,14 @@ def _get_execution_plan(sql_id: str, client=None) -> Optional[List[Dict]]:
         return None
 
 
-def _get_table_metadata(tables: List[str], client=None) -> Dict[str, Any]:
-    """获取表元数据"""
+def _get_table_metadata(tables, schema: Optional[str] = None, client=None) -> Dict[str, Any]:
+    """获取表元数据
+
+    Args:
+        tables: 表引用列表 (TableRef 或 str)
+        schema: 默认 schema，当表没有指定 schema 时使用
+        client: 数据库客户端
+    """
     # 使用传入的客户端或默认客户端
     if client is None:
         if not oracle_client.is_connected or not tables:
@@ -110,28 +117,50 @@ def _get_table_metadata(tables: List[str], client=None) -> Dict[str, Any]:
         return {}
 
     from app.oracle.metadata import MetadataCollector
+    from app.core.preprocessing import TableRef
 
     metadata = {}
     collector = MetadataCollector(client)
 
-    for table in tables[:5]:  # 限制最多5张表
+    for table_ref in tables[:5]:  # 限制最多5张表
         try:
-            meta = collector.get_table_metadata(table)
+            # 处理 TableRef 或字符串
+            if isinstance(table_ref, TableRef):
+                table_name = table_ref.name
+                table_schema = table_ref.schema or schema
+            else:
+                table_name = table_ref
+                table_schema = schema
+
+            meta = collector.get_table_metadata(table_name, owner=table_schema)
             if meta:
-                metadata[table] = {
+                key = f"{table_schema}.{table_name}" if table_schema else table_name
+                metadata[key] = {
+                    "table_name": meta.table_info.table_name,
+                    "owner": meta.table_info.owner,
                     "row_count": meta.table_info.num_rows,
                     "size_mb": meta.table_info.table_size_mb,
+                    "last_analyzed": meta.table_info.last_analyzed,
                     "columns": [
-                        {"name": c.column_name, "type": c.data_type}
+                        {"name": c.column_name, "type": c.data_type,
+                         "nullable": c.nullable, "data_length": c.data_length,
+                         "num_distinct": c.num_distinct, "density": c.density,
+                         "num_nulls": c.num_nulls, "last_analyzed": c.last_analyzed}
                         for c in meta.columns
                     ],
                     "indexes": [
-                        {"name": i.index_name, "columns": i.columns}
+                        {"name": i.index_name, "columns": i.columns,
+                         "uniqueness": i.uniqueness, "index_type": i.index_type}
                         for i in meta.indexes
+                    ],
+                    "constraints": [
+                        {"name": c.constraint_name, "type": c.constraint_type,
+                         "columns": c.columns}
+                        for c in meta.constraints
                     ]
                 }
         except Exception as e:
-            logger.warning(f"获取表 {table} 元数据失败: {e}")
+            logger.warning(f"获取表 {table_ref} 元数据失败: {e}")
 
     return metadata
 
@@ -190,7 +219,7 @@ async def analyze_sql(request: AnalyzeRequest):
         result = AnalysisResultResponse(
             sql_id=request.sql_id,
             sql_type=parsed.sql_type.value,
-            tables=list(parsed.tables),
+            tables=[t.full_name() for t in parsed.tables],
             rule_violations=[],
             recommendations=[]
         )
@@ -209,7 +238,7 @@ async def analyze_sql(request: AnalyzeRequest):
 
                 # 获取表元数据
                 if parsed.tables:
-                    metadata = _get_table_metadata(list(parsed.tables), client)
+                    metadata = _get_table_metadata(list(parsed.tables), schema=request.schema, client=client)
                     if metadata:
                         context["table_metadata"] = metadata
 
@@ -241,7 +270,7 @@ async def analyze_sql(request: AnalyzeRequest):
                     execution_plan = _get_execution_plan(request.sql_id, client)
 
                 if parsed.tables:
-                    table_metadata = _get_table_metadata(list(parsed.tables), client)
+                    table_metadata = _get_table_metadata(list(parsed.tables), schema=request.schema, client=client)
 
                 # 准备规则结果
                 rule_result_dict = None

@@ -4,11 +4,16 @@
 提供数据库源的 CRUD 和连接测试功能
 """
 
+import logging
 from typing import List, Optional
 from pydantic import BaseModel, Field
 from fastapi import APIRouter, HTTPException, Query
 
 from app.core.database import DBSourceManager, DBSource
+from app.core.dynamic_db_client import DynamicOracleClient
+from app.oracle.metadata import MetadataCollector
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/db-sources", tags=["数据库源管理"])
 
@@ -68,6 +73,12 @@ class TestConnectionResponse(BaseModel):
     success: bool
     message: str
     version: Optional[str] = None
+
+
+class SchemaListResponse(BaseModel):
+    """Schema 列表响应"""
+    schemas: List[str]
+    total: int
 
 
 class DBSourceDetailResponse(DBSourceResponse):
@@ -222,3 +233,37 @@ async def test_db_source_connection(source_id: str):
         message=message if not success else "连接成功",
         version=message if success else None
     )
+
+
+@router.get("/{source_id}/schemas", response_model=SchemaListResponse)
+async def get_db_source_schemas(source_id: str):
+    """
+    获取数据源的 Schema 列表
+
+    连接目标数据库，获取当前用户可访问的所有 schema（owner）列表。
+    """
+    source = DBSourceManager.get_by_id(source_id)
+    if not source:
+        raise HTTPException(status_code=404, detail="数据源不存在")
+
+    client = None
+    try:
+        client = DynamicOracleClient()
+        client.connect_to_source(source_id)
+
+        try:
+            collector = MetadataCollector(client)
+            schemas = collector.get_schemas()
+
+            return SchemaListResponse(
+                schemas=schemas,
+                total=len(schemas)
+            )
+        finally:
+            client.close()
+
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"获取 schema 列表失败: {e}")
+        raise HTTPException(status_code=500, detail=f"获取 schema 列表失败: {e}")

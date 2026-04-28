@@ -376,6 +376,7 @@ class DBSourceManager:
     def _test_oracle(source: DBSource) -> tuple[bool, str]:
         """测试 Oracle 连接"""
         import oracledb
+        from app.core.oracle_client_init import ensure_thick_mode
 
         try:
             if source.service_name:
@@ -398,6 +399,30 @@ class DBSourceManager:
 
             conn.close()
             return True, version
+        except oracledb.Error as e:
+            error_msg = str(e)
+            # DPY-3010: 数据库版本太旧，thin 模式不支持
+            if "DPY-3010" in error_msg:
+                if ensure_thick_mode():
+                    try:
+                        conn = oracledb.connect(
+                            user=source.username,
+                            password=source.password,
+                            dsn=dsn
+                        )
+                        cursor = conn.cursor()
+                        cursor.execute("SELECT * FROM v$version WHERE banner LIKE 'Oracle%'")
+                        version = cursor.fetchone()[0]
+                        conn.close()
+                        return True, f"{version} (thick模式)"
+                    except oracledb.Error as retry_err:
+                        return False, f"thick 模式重连失败: {retry_err}"
+                return False, (
+                    "该数据库的 Oracle 版本太旧（低于 12.1），"
+                    "当前 thin 模式不支持。请检查项目目录中是否已放置 "
+                    "Oracle Instant Client 库文件。"
+                )
+            return False, error_msg
         except Exception as e:
             return False, str(e)
 

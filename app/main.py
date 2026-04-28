@@ -16,6 +16,7 @@ from fastapi.responses import FileResponse
 from app.config import settings
 from app.oracle.client import oracle_client, OracleConnectionError
 from app.api.routes import collect_router, analyze_router, db_sources_router
+from app.core.oracle_client_init import init_thick_mode
 
 # 配置日志
 logging.basicConfig(
@@ -34,6 +35,10 @@ async def lifespan(app: FastAPI):
     """
     # 启动
     logger.info(f"启动 {settings.app.name} ...")
+    # 优先尝试启用 Oracle thick 模式（支持 Oracle 11g）
+    thick_ok = init_thick_mode()
+    if not thick_ok:
+        logger.info("未启用 thick 模式，将使用 thin 模式（要求 Oracle 12.1+）")
     try:
         oracle_client.initialize()
         logger.info("Oracle连接初始化成功")

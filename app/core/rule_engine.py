@@ -316,6 +316,7 @@ class CartesianJoinRule(SQLRule):
 
         # 如果表数量 > JOIN 数量 + 1，可能缺少连接条件
         if table_count >= 2 and join_count < table_count - 1 and not has_where:
+            table_names = [t.full_name() for t in sql.tables]
             return RuleViolation(
                 rule_id=self.rule_id,
                 rule_name=self.name,
@@ -323,7 +324,7 @@ class CartesianJoinRule(SQLRule):
                 severity=self.severity,
                 message=f"检测到 {table_count} 张表连接但缺少连接条件",
                 suggestion="多表查询应明确指定连接条件，避免产生笛卡尔积导致性能问题",
-                metadata={"tables": list(sql.tables)}
+                metadata={"tables": table_names}
             )
         return None
 

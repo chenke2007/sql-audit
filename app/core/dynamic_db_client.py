@@ -11,6 +11,7 @@ from contextlib import contextmanager
 import oracledb
 
 from app.core.database import DBSourceManager, DBSource
+from app.core.oracle_client_init import ensure_thick_mode
 
 logger = logging.getLogger(__name__)
 
@@ -71,6 +72,33 @@ class DynamicOracleClient:
             logger.info(f"已连接到数据源: {source.name} ({source.host}:{source.port})")
             return True
 
+        except oracledb.Error as e:
+            error_msg = str(e)
+            if "DPY-3010" in error_msg:
+                # thin 模式不支持旧版 Oracle，尝试启用 thick 模式后重连
+                if ensure_thick_mode():
+                    try:
+                        self._connection = oracledb.connect(
+                            user=source.username,
+                            password=source.password,
+                            dsn=dsn
+                        )
+                        logger.info(
+                            f"已连接到数据源(thick模式): {source.name} ({source.host}:{source.port})"
+                        )
+                        return True
+                    except oracledb.Error as retry_err:
+                        logger.error(f"thick 模式重连失败: {retry_err}")
+                        raise ValueError(
+                            f"数据源 '{source.name}' 连接失败: {retry_err}"
+                        )
+                raise ValueError(
+                    f"数据源 '{source.name}' 的 Oracle 版本太旧（低于 12.1），"
+                    "当前 thin 模式不支持。请检查项目目录中是否已放置 "
+                    "Oracle Instant Client 库文件。"
+                )
+            logger.error(f"连接数据源失败: {e}")
+            raise
         except Exception as e:
             logger.error(f"连接数据源失败: {e}")
             raise

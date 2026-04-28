@@ -36,12 +36,23 @@ class IndexInfo:
 
 @dataclass
 class ColumnInfo:
-    """列信息"""
+    """列信息（含统计信息）"""
     column_name: str
     data_type: str
     nullable: bool = True
     data_length: Optional[int] = None
     num_distinct: Optional[int] = None
+    density: Optional[float] = None
+    num_nulls: Optional[int] = None
+    last_analyzed: Optional[str] = None
+
+
+@dataclass
+class ConstraintInfo:
+    """约束信息"""
+    constraint_name: str
+    constraint_type: str  # P = Primary Key, R = Foreign Key, U = Unique, C = Check
+    columns: List[str] = field(default_factory=list)
 
 
 @dataclass
@@ -50,6 +61,7 @@ class TableMetadata:
     table_info: TableInfo
     columns: List[ColumnInfo] = field(default_factory=list)
     indexes: List[IndexInfo] = field(default_factory=list)
+    constraints: List[ConstraintInfo] = field(default_factory=list)
 
 
 class MetadataCollector:
@@ -111,7 +123,7 @@ class MetadataCollector:
 
     def get_column_info(self, table_name: str, owner: Optional[str] = None) -> List[ColumnInfo]:
         """
-        获取表的列信息
+        获取表的列信息（含统计信息）
 
         Args:
             table_name: 表名
@@ -120,14 +132,22 @@ class MetadataCollector:
         Returns:
             列信息列表
         """
+        # 主查询：从 all_tab_columns 获取基本列信息
         sql = """
         SELECT
             c.column_name,
             c.data_type,
             c.nullable,
             c.data_length,
-            c.num_distinct
+            s.num_distinct,
+            s.density,
+            s.num_nulls,
+            TO_CHAR(s.last_analyzed, 'YYYY-MM-DD HH24:MI:SS') as last_analyzed
         FROM all_tab_columns c
+        LEFT JOIN all_tab_col_statistics s
+            ON c.table_name = s.table_name
+            AND c.column_name = s.column_name
+            AND c.owner = s.owner
         WHERE c.table_name = :table_name
         """
         params = {"table_name": table_name.upper()}
@@ -149,7 +169,10 @@ class MetadataCollector:
                     data_type=row[1],
                     nullable=row[2] == 'Y',
                     data_length=row[3],
-                    num_distinct=row[4]
+                    num_distinct=row[4],
+                    density=row[5],
+                    num_nulls=row[6],
+                    last_analyzed=row[7]
                 ))
             return columns
         except OracleQueryError as e:
@@ -228,6 +251,82 @@ class MetadataCollector:
         except OracleQueryError:
             return []
 
+    def get_schemas(self) -> List[str]:
+        """
+        获取当前用户可访问的所有 schema（owner）列表
+
+        Returns:
+            schema 名称列表（按字母排序）
+        """
+        sql = """
+        SELECT DISTINCT username
+        FROM all_users
+        WHERE username NOT IN ('SYS', 'SYSTEM', 'DBSNMP', 'SYSMAN', 'OUTLN',
+                               'ORDSYS', 'ORDPLUGINS', 'CTXSYS', 'ANONYMOUS',
+                               'EXFSYS', 'MDSYS', 'WMSYS', 'XDB', 'ORDDATA')
+        ORDER BY username
+        """
+        try:
+            results = self.client.execute(sql)
+            return [row[0] for row in results]
+        except OracleQueryError as e:
+            logger.error(f"获取 schema 列表失败: {e}")
+            return []
+
+    def get_constraint_info(self, table_name: str, owner: Optional[str] = None) -> List[ConstraintInfo]:
+        """
+        获取表的约束信息
+
+        Args:
+            table_name: 表名
+            owner: 所有者
+
+        Returns:
+            约束信息列表
+        """
+        sql = """
+        SELECT
+            c.constraint_name,
+            c.constraint_type,
+            cc.column_name
+        FROM all_constraints c
+        JOIN all_cons_columns cc
+            ON c.constraint_name = cc.constraint_name
+            AND c.owner = cc.owner
+        WHERE c.table_name = :table_name
+          AND c.constraint_type IN ('P', 'U', 'R')
+        """
+        params = {"table_name": table_name.upper()}
+
+        if owner:
+            sql += " AND c.owner = :owner"
+            params["owner"] = owner.upper()
+        else:
+            sql += " AND c.owner NOT IN ('SYS', 'SYSTEM', 'DBSNMP', 'SYSMAN', 'OUTLN')"
+
+        sql += " ORDER BY c.constraint_name, cc.position"
+
+        try:
+            results = self.client.execute(sql, params)
+            constraints = {}
+            for row in results:
+                constraint_name = row[0]
+                constraint_type = row[1]
+                column_name = row[2]
+
+                if constraint_name not in constraints:
+                    constraints[constraint_name] = ConstraintInfo(
+                        constraint_name=constraint_name,
+                        constraint_type=constraint_type,
+                        columns=[]
+                    )
+                constraints[constraint_name].columns.append(column_name)
+
+            return list(constraints.values())
+        except OracleQueryError as e:
+            logger.error(f"获取约束信息失败 {table_name}: {e}")
+            return []
+
     def get_table_metadata(self, table_name: str, owner: Optional[str] = None) -> Optional[TableMetadata]:
         """
         获取表的完整元数据
@@ -245,11 +344,13 @@ class MetadataCollector:
 
         columns = self.get_column_info(table_name, owner)
         indexes = self.get_index_info(table_name, owner)
+        constraints = self.get_constraint_info(table_name, owner)
 
         return TableMetadata(
             table_info=table_info,
             columns=columns,
-            indexes=indexes
+            indexes=indexes,
+            constraints=constraints
         )
 
     def extract_tables_from_sql(self, sql_text: str) -> Set[str]:

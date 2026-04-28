@@ -71,9 +71,9 @@
                 <div v-if="activeMenu === 'analyze'" class="space-y-6">
                     <!-- Data Source Selector -->
                     <div class="bg-white rounded-lg shadow-sm p-4">
-                        <div class="flex items-center gap-4">
+                        <div class="flex items-center gap-4 flex-wrap">
                             <label class="text-sm font-medium text-gray-700">选择数据源:</label>
-                            <select v-model="selectedAnalyzeSource" class="px-3 py-2 border rounded-lg min-w-[200px]">
+                            <select v-model="selectedAnalyzeSource" @change="onAnalyzeSourceChange" class="px-3 py-2 border rounded-lg min-w-[200px]">
                                 <option v-for="source in dbSources" :key="source.id" :value="source.id">
                                     {{ source.name }} ({{ source.db_type?.toUpperCase() }})
                                 </option>
@@ -82,6 +82,18 @@
                                 {{ dbSources.find(s => s.id === selectedAnalyzeSource)?.host }}:{{ dbSources.find(s => s.id === selectedAnalyzeSource)?.port }}
                             </span>
                             <button @click="loadDBSources" class="text-sm text-blue-600 hover:text-blue-800 ml-auto">刷新列表</button>
+                        </div>
+                        <!-- Schema Selector -->
+                        <div v-if="selectedAnalyzeSource" class="flex items-center gap-4 flex-wrap mt-3 pt-3 border-t">
+                            <label class="text-sm font-medium text-gray-700">选择 Schema:</label>
+                            <select v-model="selectedSchema" class="px-3 py-2 border rounded-lg min-w-[200px]">
+                                <option value="">请选择 Schema</option>
+                                <option v-for="schema in schemaList" :key="schema" :value="schema">
+                                    {{ schema }}
+                                </option>
+                            </select>
+                            <span v-if="loadingSchemas" class="text-sm text-gray-400">加载中...</span>
+                            <span v-else-if="schemaList.length === 0" class="text-sm text-orange-500">⚠ 未获取到 Schema 列表</span>
                         </div>
                     </div>
 
@@ -111,6 +123,7 @@
                             <div class="mt-2 text-xs text-gray-500 flex items-center gap-4">
                                 <span v-if="!sqlText.trim()" class="text-orange-500">⚠ 请先输入 SQL 语句</span>
                                 <span v-else-if="!selectedAnalyzeSource" class="text-orange-500">⚠ 请先选择数据源</span>
+                                <span v-else-if="!selectedSchema" class="text-orange-500">⚠ 请先选择 Schema</span>
                                 <span v-else class="text-green-600">✓ 准备就绪，点击"开始分析"</span>
                             </div>
                             <div class="flex items-center justify-between mt-4">
@@ -126,7 +139,7 @@
                                 </div>
                                 <button
                                     @click="analyzeSQL"
-                                    :disabled="analyzing || !sqlText.trim() || !selectedAnalyzeSource"
+                                    :disabled="analyzing || !sqlText.trim() || !selectedAnalyzeSource || !selectedSchema"
                                     class="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed flex items-center gap-2"
                                 >
                                     <svg v-if="analyzing" class="animate-spin h-4 w-4" fill="none" viewBox="0 0 24 24">
@@ -174,6 +187,14 @@
 
                     <!-- Results Card -->
                     <div v-if="analysisResult" class="bg-white rounded-lg shadow-sm p-6 min-w-0">
+                        <!-- 元数据来源标注 -->
+                        <div v-if="selectedAnalyzeSource && selectedSchema" class="mb-4 p-3 bg-blue-50 border border-blue-100 rounded-lg text-sm text-blue-800 flex items-center gap-2">
+                            <svg class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                            </svg>
+                            <span>本次分析基于 <strong>{{ dbSources.find(s => s.id === selectedAnalyzeSource)?.name }}</strong> / Schema: <strong>{{ selectedSchema }}</strong> 的实时元数据</span>
+                        </div>
+
                         <div class="flex flex-col sm:flex-row sm:items-center justify-between mb-4 gap-3">
                             <h2 class="text-lg font-semibold">分析结果</h2>
                             <div class="flex items-center gap-3 flex-wrap">
@@ -239,12 +260,20 @@
                             <div v-if="analysisResult.llm_analysis.index_suggestions?.length" class="mb-4">
                                 <h4 class="font-medium text-gray-700 mb-2">索引建议</h4>
                                 <div class="space-y-3">
-                                    <div v-for="(idx, i) in analysisResult.llm_analysis.index_suggestions" :key="i" class="bg-green-50 border border-green-200 rounded-lg p-4 min-w-0">
+                                    <div v-for="(idx, i) in analysisResult.llm_analysis.index_suggestions" :key="i"
+                                         :class="['border rounded-lg p-4 min-w-0', idx.note ? 'bg-yellow-50 border-yellow-200' : 'bg-green-50 border-green-200']">
                                         <div class="flex items-center justify-between mb-2 flex-wrap gap-2">
-                                            <span class="font-medium text-green-900">{{ idx.table }} 表</span>
-                                            <span v-if="idx.estimate_benefit" class="text-xs bg-green-200 text-green-800 px-2 py-1 rounded">{{ idx.estimate_benefit }}</span>
+                                            <span class="font-medium" :class="idx.note ? 'text-yellow-900' : 'text-green-900'">{{ idx.table }} 表</span>
+                                            <span v-if="idx.estimate_benefit" class="text-xs px-2 py-1 rounded"
+                                                  :class="idx.note ? 'bg-yellow-200 text-yellow-800' : 'bg-green-200 text-green-800'"
+                                            >{{ idx.estimate_benefit }}</span>
                                         </div>
-                                        <p class="text-green-700 text-sm mb-2 break-words">列: {{ idx.columns?.join(', ') || '-' }}</p>
+                                        <p class="text-sm mb-2 break-words" :class="idx.note ? 'text-yellow-700' : 'text-green-700'"
+                                        >列: {{ idx.columns?.join(', ') || '-' }}</p>
+                                        <!-- 重复索引提示 -->
+                                        <div v-if="idx.note" class="bg-yellow-100 border border-yellow-300 text-yellow-800 p-2 rounded text-sm mb-2">
+                                            ⚠️ {{ idx.note }}
+                                        </div>
                                         <!-- SQL Display -->
                                         <div v-if="idx.sql && idx.sql.trim()" class="relative group">
                                             <pre class="bg-gray-900 text-gray-100 p-3 rounded-lg sql-code text-sm mb-2 whitespace-pre-wrap break-all overflow-x-auto">{{ idx.sql }}</pre>
@@ -252,10 +281,11 @@
                                                 复制
                                             </button>
                                         </div>
-                                        <div v-else class="bg-yellow-100 border border-yellow-300 text-yellow-800 p-2 rounded text-sm mb-2">
+                                        <div v-else-if="!idx.note" class="bg-yellow-100 border border-yellow-300 text-yellow-800 p-2 rounded text-sm mb-2">
                                             ⚠️ 未返回具体的 CREATE INDEX 语句
                                         </div>
-                                        <p v-if="idx.reason" class="text-green-600 text-sm break-words"><strong>原因:</strong> {{ idx.reason }}</p>
+                                        <p v-if="idx.reason" class="text-sm break-words" :class="idx.note ? 'text-yellow-600' : 'text-green-600'"
+                                        ><strong>原因:</strong> {{ idx.reason }}</p>
                                     </div>
                                 </div>
                             </div>
@@ -624,6 +654,9 @@
                 // Selected sources for collection and analysis
                 const selectedCollectionSource = ref('');
                 const selectedAnalyzeSource = ref('');
+                const selectedSchema = ref('');
+                const schemaList = ref([]);
+                const loadingSchemas = ref(false);
                 const collectedSQLs = ref([]);
                 const rules = ref([]);
                 const toasts = ref([]);
@@ -661,6 +694,44 @@
                     }
                 };
 
+                // Load schemas for selected data source
+                const loadSchemas = async () => {
+                    if (!selectedAnalyzeSource.value) {
+                        schemaList.value = [];
+                        selectedSchema.value = '';
+                        return;
+                    }
+                    loadingSchemas.value = true;
+                    try {
+                        const res = await fetch(`/api/db-sources/${selectedAnalyzeSource.value}/schemas`);
+                        if (res.ok) {
+                            const data = await res.json();
+                            schemaList.value = data.schemas || [];
+                            // 如果 SQL 中有 schema 前缀，尝试匹配
+                            const sqlUpper = sqlText.value.toUpperCase();
+                            const matchedSchema = schemaList.value.find(s => sqlUpper.includes(s + '.'));
+                            if (matchedSchema) {
+                                selectedSchema.value = matchedSchema;
+                            } else if (schemaList.value.length === 1) {
+                                selectedSchema.value = schemaList.value[0];
+                            }
+                        } else {
+                            schemaList.value = [];
+                        }
+                    } catch (e) {
+                        schemaList.value = [];
+                    } finally {
+                        loadingSchemas.value = false;
+                    }
+                };
+
+                // Handle data source change
+                const onAnalyzeSourceChange = () => {
+                    selectedSchema.value = '';
+                    schemaList.value = [];
+                    loadSchemas();
+                };
+
                 // Analyze SQL
                 const analyzeSQL = async () => {
                     if (!sqlText.value.trim()) {
@@ -671,6 +742,10 @@
                         showToast('请先选择数据源', 'error');
                         return;
                     }
+                    if (!selectedSchema.value) {
+                        showToast('请先选择 Schema', 'error');
+                        return;
+                    }
                     analyzing.value = true;
                     try {
                         const res = await fetch('/api/analyze/single', {
@@ -678,6 +753,7 @@
                             headers: { 'Content-Type': 'application/json' },
                             body: JSON.stringify({
                                 db_source_id: selectedAnalyzeSource.value,
+                                schema: selectedSchema.value,
                                 sql_text: sqlText.value,
                                 use_llm: useLLM.value,
                                 use_rules: useRules.value
@@ -1143,10 +1219,10 @@
                     analysisResult, collectedSQLs, rules, toasts, fileInput,
                     // DB Sources
                     dbSources, loadingDBSources, dbSourceFilter, showDBSourceModal, editingDBSource, dbSourceForm, testingSource, testingModal, savingDBSource,
-                    selectedCollectionSource, selectedAnalyzeSource,
+                    selectedCollectionSource, selectedAnalyzeSource, selectedSchema, schemaList, loadingSchemas,
                     // Menu & Methods
                     menuItems, inputModes,
-                    analyzeSQL, analyzeBySqlId, collectSlowSQLs, analyzeCollectedSQL, onCollectionSourceChange,
+                    analyzeSQL, analyzeBySqlId, collectSlowSQLs, analyzeCollectedSQL, onCollectionSourceChange, onAnalyzeSourceChange, loadSchemas,
                     loadRules, toggleRule, triggerFileUpload, handleFileUpload,
                     getRiskClass, getSeverityClass, handleMenuClick, copyToClipboard, exportToPDF,
                     // DB Source Methods

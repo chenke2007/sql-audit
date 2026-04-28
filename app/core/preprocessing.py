@@ -27,12 +27,40 @@ class SQLType(Enum):
 
 
 @dataclass
+class TableRef:
+    """表引用信息"""
+    name: str                          # 表名
+    schema: Optional[str] = None       # schema/owner
+    alias: Optional[str] = None        # 别名
+
+    def __hash__(self):
+        return hash((self.name.upper(), self.schema.upper() if self.schema else None))
+
+    def __eq__(self, other):
+        if isinstance(other, TableRef):
+            return (self.name.upper() == other.name.upper() and
+                    (self.schema or "").upper() == (other.schema or "").upper())
+        return False
+
+    def __repr__(self):
+        if self.schema:
+            return f"{self.schema}.{self.name}"
+        return self.name
+
+    def full_name(self) -> str:
+        """返回完整的表名（含 schema）"""
+        if self.schema:
+            return f"{self.schema}.{self.name}"
+        return self.name
+
+
+@dataclass
 class SQLStatement:
     """解析后的 SQL 语句对象"""
     original_sql: str
     normalized_sql: str
     sql_type: SQLType
-    tables: Set[str] = field(default_factory=set)
+    tables: Set[TableRef] = field(default_factory=set)
     columns: Set[str] = field(default_factory=set)
     where_conditions: List[str] = field(default_factory=list)
     join_conditions: List[str] = field(default_factory=list)
@@ -179,32 +207,62 @@ class SQLParser:
         return SQLType.UNKNOWN
 
     @staticmethod
-    def _extract_tables(sql: str) -> Set[str]:
-        """从 SQL 中提取表名"""
+    def _extract_tables(sql: str) -> Set[TableRef]:
+        """从 SQL 中提取表名（含 schema 和别名）"""
         tables = set()
         upper_sql = sql.upper()
 
-        # FROM 子句
-        from_pattern = re.compile(r'\bFROM\s+([A-Z_][A-Z0-9_]*(?:\s*,\s*[A-Z_][A-Z0-9_]*)*)', re.IGNORECASE)
+        # FROM 子句: 支持 schema.table alias 格式
+        # 匹配 FROM 后面的表列表，支持 schema.table alias 或 table alias
+        from_pattern = re.compile(
+            r'\bFROM\s+((?:[A-Z_][A-Z0-9_]*(?:\.[A-Z_][A-Z0-9_]*)?\s*(?:[A-Z_][A-Z0-9_]*)?\s*,\s*)*[A-Z_][A-Z0-9_]*(?:\.[A-Z_][A-Z0-9_]*)?\s*(?:[A-Z_][A-Z0-9_]*)?)',
+            re.IGNORECASE
+        )
         for match in from_pattern.finditer(upper_sql):
             table_list = match.group(1)
-            for table in re.split(r'\s*,\s*', table_list):
-                # 过滤关键字和子查询
-                if table not in SQLNormalizer.ORACLE_KEYWORDS and '(' not in table:
-                    # 去除可能的 schema 前缀
-                    clean_table = table.split('.')[-1].strip()
-                    if clean_table:
-                        tables.add(clean_table)
+            # 按逗号分割多个表
+            for table_entry in re.split(r'\s*,\s*', table_list):
+                table_entry = table_entry.strip()
+                if not table_entry or '(' in table_entry:
+                    continue
 
-        # JOIN 子句
-        join_pattern = re.compile(r'\bJOIN\s+([A-Z_][A-Z0-9_]*)', re.IGNORECASE)
+                # 解析表名、schema 和别名
+                parts = table_entry.split()
+                table_with_schema = parts[0]
+                alias = parts[1] if len(parts) > 1 and parts[1] not in SQLNormalizer.ORACLE_KEYWORDS else None
+
+                # 处理 schema.table 格式
+                if '.' in table_with_schema:
+                    schema, table_name = table_with_schema.split('.', 1)
+                    schema = schema.strip()
+                    table_name = table_name.strip()
+                else:
+                    schema = None
+                    table_name = table_with_schema.strip()
+
+                # 过滤关键字
+                if table_name not in SQLNormalizer.ORACLE_KEYWORDS and table_name != 'DUAL':
+                    tables.add(TableRef(name=table_name, schema=schema, alias=alias))
+
+        # JOIN 子句: 支持 schema.table alias 格式
+        join_pattern = re.compile(
+            r'\bJOIN\s+([A-Z_][A-Z0-9_]*(?:\.[A-Z_][A-Z0-9_]*)?)\s*(?:([A-Z_][A-Z0-9_]*)\s+)?(?:ON\b|USING\b|$)',
+            re.IGNORECASE
+        )
         for match in join_pattern.finditer(upper_sql):
-            table = match.group(1)
-            if table not in SQLNormalizer.ORACLE_KEYWORDS:
-                tables.add(table)
+            table_with_schema = match.group(1).strip()
+            alias = match.group(2).strip() if match.group(2) else None
 
-        # 过滤 Oracle 系统表/关键字
-        tables = tables - SQLNormalizer.ORACLE_KEYWORDS - {'DUAL'}
+            if '.' in table_with_schema:
+                schema, table_name = table_with_schema.split('.', 1)
+                schema = schema.strip()
+                table_name = table_name.strip()
+            else:
+                schema = None
+                table_name = table_with_schema
+
+            if table_name not in SQLNormalizer.ORACLE_KEYWORDS and table_name != 'DUAL':
+                tables.add(TableRef(name=table_name, schema=schema, alias=alias))
 
         return tables
 
