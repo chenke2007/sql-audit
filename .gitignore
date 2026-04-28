@@ -58,7 +58,7 @@ yarn.lock
 .gstack/
 
 # Oracle Instant Client binaries (platform-specific, extracted from downloads/)
-oracle_instantclient/
+oracle_instantclient/macos_arm64
 
 # Database
 *.db
