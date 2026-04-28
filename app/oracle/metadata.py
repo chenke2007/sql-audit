@@ -268,10 +268,21 @@ class MetadataCollector:
         """
         try:
             results = self.client.execute(sql)
-            return [row[0] for row in results]
-        except OracleQueryError as e:
-            logger.error(f"获取 schema 列表失败: {e}")
-            return []
+            schemas = [row[0] for row in results]
+            if schemas:
+                return schemas
+        except Exception as e:
+            logger.warning(f"从 all_users 获取 schema 列表失败: {e}")
+
+        # Fallback: 返回当前连接用户作为 schema
+        try:
+            results = self.client.execute("SELECT USER FROM DUAL")
+            if results:
+                return [results[0][0]]
+        except Exception as e:
+            logger.error(f"获取 schema 列表 fallback 失败: {e}")
+
+        return []
 
     def get_constraint_info(self, table_name: str, owner: Optional[str] = None) -> List[ConstraintInfo]:
         """

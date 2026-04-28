@@ -86,6 +86,17 @@ class DBSourceDetailResponse(DBSourceResponse):
     password: str
 
 
+class TestConnectionRequest(BaseModel):
+    """测试连接请求（不保存数据源）"""
+    db_type: str = Field(..., description="数据库类型")
+    host: str = Field(..., min_length=1, description="主机地址")
+    port: int = Field(..., ge=1, le=65535, description="端口")
+    service_name: Optional[str] = Field(None, description="Service Name")
+    sid: Optional[str] = Field(None, description="SID")
+    username: str = Field(..., min_length=1, description="用户名")
+    password: str = Field(..., min_length=1, description="密码")
+
+
 # ========== API 路由 ==========
 
 @router.get("", response_model=DBSourceListResponse)
@@ -225,6 +236,37 @@ async def test_db_source_connection(source_id: str):
     source = DBSourceManager.get_by_id(source_id)
     if not source:
         raise HTTPException(status_code=404, detail="数据源不存在")
+
+    success, message = DBSourceManager.test_connection(source)
+
+    return TestConnectionResponse(
+        success=success,
+        message=message if not success else "连接成功",
+        version=message if success else None
+    )
+
+
+@router.post("/test-connection", response_model=TestConnectionResponse)
+async def test_connection_without_save(data: TestConnectionRequest):
+    """
+    测试数据库连接（不保存数据源）
+
+    用于数据源创建/编辑时的连接测试。
+    """
+    from app.core.database import DBSource
+
+    source = DBSource(
+        id="test",
+        name="test",
+        db_type=data.db_type,
+        host=data.host,
+        port=data.port,
+        username=data.username,
+        password="",  # 占位，通过 setter 设置以触发加密
+        service_name=data.service_name,
+        sid=data.sid
+    )
+    source.password = data.password
 
     success, message = DBSourceManager.test_connection(source)
 
