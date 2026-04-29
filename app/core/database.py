@@ -14,11 +14,13 @@ from contextlib import contextmanager
 from app.core.security import encrypt_password, decrypt_password
 
 
-# SQLite 数据库路径
-DB_PATH = os.path.join(
+# SQLite 数据库路径（支持通过环境变量覆盖，便于 Docker volume 挂载）
+DB_DIR = os.environ.get("SQL_AUDIT_DATA_DIR", os.path.join(
     os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
-    "sql_audit_metadata.db"
-)
+    "data"
+))
+os.makedirs(DB_DIR, exist_ok=True)
+DB_PATH = os.path.join(DB_DIR, "sql_audit_metadata.db")
 
 
 def init_metadata_db():
