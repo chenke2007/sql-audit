@@ -74,7 +74,7 @@ class LLMConfig(BaseSettings):
     )
 
     # 调用参数
-    timeout_seconds: int = Field(default=60, description="API调用超时时间")
+    timeout_seconds: int = Field(default=120, description="API调用超时时间")
     max_retries: int = Field(default=3, description="最大重试次数")
     temperature: float = Field(default=0.1, description="温度参数，越低越确定")
     max_tokens: int = Field(default=4096, description="最大返回token数")

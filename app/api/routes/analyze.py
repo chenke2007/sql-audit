@@ -15,7 +15,7 @@ from fastapi import APIRouter, HTTPException, BackgroundTasks, Response
 from pydantic import BaseModel, Field
 
 from app.core import rule_engine, sql_analyzer, preprocess_sql
-from app.core.pdf_exporter import pdf_exporter
+from app.exporters import registry
 from app.oracle.client import oracle_client, OracleConnectionError, OracleQueryError
 from app.oracle.collector import SQLCollector
 from app.core.dynamic_db_client import DynamicOracleClient
@@ -36,6 +36,7 @@ class AnalyzeRequest(BaseModel):
     use_llm: bool = Field(True, description="是否使用LLM分析")
     use_rules: bool = Field(True, description="是否使用规则引擎分析")
     include_plan: bool = Field(True, description="是否包含执行计划分析")
+    existing_result: Optional[Dict[str, Any]] = Field(None, description="已有的分析结果，传入则直接使用而非重新分析")
 
 
 class RuleViolationResponse(BaseModel):
@@ -79,6 +80,11 @@ class BatchAnalyzeResponse(BaseModel):
     """批量分析响应"""
     results: List[AnalysisResultResponse]
     summary: Dict[str, int]
+
+
+class ExportRequest(AnalyzeRequest):
+    """导出请求 - 继承分析请求，增加格式参数"""
+    format: str = Field("pdf", description="导出格式: pdf, html, markdown")
 
 
 # ========== 辅助函数 ==========
@@ -438,50 +444,96 @@ async def toggle_rule(rule_id: str, enabled: bool):
     return {"rule_id": rule_id, "enabled": enabled}
 
 
-@router.post("/export/pdf")
-async def export_analysis_pdf(request: AnalyzeRequest):
+@router.get("/export/formats")
+async def list_export_formats():
     """
-    导出分析结果为 PDF
+    列出所有可用的导出格式
+    """
+    return {"formats": registry.list_formats()}
 
-    执行 SQL 分析并将结果导出为 PDF 报告。
+
+@router.post("/export")
+async def export_analysis(request: ExportRequest):
+    """
+    统一导出接口 - 支持 PDF、HTML、Markdown 格式
+
+    通过 format 参数指定导出格式。
+    如果请求中包含 existing_result，则直接使用该结果生成报告。
     """
     try:
-        # 执行分析
-        result = await analyze_sql(request)
+        # 获取导出器
+        exporter = registry.get(request.format)
+        if not exporter:
+            available = registry.list_formats()
+            raise HTTPException(
+                status_code=400,
+                detail=f"不支持的导出格式: {request.format}。可用格式: {[f['name'] for f in available]}"
+            )
 
-        # 转换为字典格式
-        result_dict = {
-            "sql_id": result.sql_id,
-            "sql_type": result.sql_type,
-            "sql_text": request.sql_text,
-            "tables": result.tables,
-            "rule_violations": [v.model_dump() for v in result.rule_violations],
-            "llm_analysis": result.llm_analysis.model_dump() if result.llm_analysis else None,
-            "recommendations": result.recommendations
-        }
+        # 准备分析结果字典
+        if request.existing_result:
+            result_dict = {
+                "sql_id": request.existing_result.get("sql_id"),
+                "sql_type": request.existing_result.get("sql_type", "N/A"),
+                "sql_text": request.sql_text,
+                "tables": request.existing_result.get("tables", []),
+                "rule_violations": request.existing_result.get("rule_violations", []),
+                "llm_analysis": request.existing_result.get("llm_analysis"),
+                "recommendations": request.existing_result.get("recommendations", [])
+            }
+            sql_id = result_dict["sql_id"] or 'unknown'
+        else:
+            result = await analyze_sql(request)
+            result_dict = {
+                "sql_id": result.sql_id,
+                "sql_type": result.sql_type,
+                "sql_text": request.sql_text,
+                "tables": result.tables,
+                "rule_violations": [v.model_dump() for v in result.rule_violations],
+                "llm_analysis": result.llm_analysis.model_dump() if result.llm_analysis else None,
+                "recommendations": result.recommendations
+            }
+            sql_id = result.sql_id or 'unknown'
 
-        # 生成 PDF
-        pdf_data = pdf_exporter.export_analysis_report(result_dict)
-
-        # 生成文件名
-        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        sql_id = result.sql_id or 'unknown'
-        filename = f"sql_audit_report_{sql_id}_{timestamp}.pdf"
+        # 执行导出
+        export_result = registry.export(request.format, result_dict)
+        filename = export_result.generate_filename(sql_id)
 
         return Response(
-            content=pdf_data,
-            media_type="application/pdf",
+            content=export_result.content,
+            media_type=export_result.content_type,
             headers={
-                "Content-Disposition": f"attachment; filename={filename}"
+                "Content-Disposition": f'attachment; filename="{filename}"'
             }
         )
 
     except HTTPException:
         raise
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except RuntimeError as e:
+        raise HTTPException(status_code=503, detail=str(e))
     except Exception as e:
-        logger.error(f"PDF 导出失败: {e}")
+        logger.error(f"导出失败: {e}")
         import traceback
         logger.error(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=f"导出失败: {e}")
+
+
+@router.post("/export/pdf")
+async def export_analysis_pdf(request: AnalyzeRequest):
+    """
+    导出分析结果为 PDF（兼容旧接口）
+
+    此接口保留用于向后兼容，内部调用统一导出接口。
+    """
+    try:
+        export_request = ExportRequest(**request.model_dump(), format="pdf")
+        return await export_analysis(export_request)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"PDF 导出兼容层失败: {e}")
         raise HTTPException(status_code=500, detail=f"PDF 导出失败: {e}")
 
 

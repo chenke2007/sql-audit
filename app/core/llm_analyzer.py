@@ -41,7 +41,7 @@ class LLMClient:
     def __init__(self):
         self.config = settings.llm
         self.client = httpx.AsyncClient(
-            timeout=60.0,
+            timeout=self.config.timeout_seconds,
             headers={"Authorization": f"Bearer {self.config.api_key}"}
         )
 
@@ -222,13 +222,6 @@ class LLMClient:
         """构建分析提示词"""
         formatted_sql = format_sql(sql_text)
 
-        # 限制SQL长度，避免超出模型上下文窗口
-        MAX_SQL_LENGTH = 3000
-        sql_truncated = False
-        if len(formatted_sql) > MAX_SQL_LENGTH:
-            formatted_sql = formatted_sql[:MAX_SQL_LENGTH] + "\n-- ... [SQL已截断，原长度: " + str(len(formatted_sql)) + " 字符]"
-            sql_truncated = True
-
         prompt = f"""请分析以下 SQL 语句的性能：
 
 ## SQL 语句
@@ -236,17 +229,13 @@ class LLMClient:
 {formatted_sql}
 ```
 """
-        if sql_truncated:
-            prompt += """
-注意：此SQL语句较长，仅显示了前3000字符。请基于可见部分进行分析，重点关注SQL结构和潜在性能问题。
-"""
 
         # 添加执行计划信息
         if execution_plan:
             prompt += f"""
 ## 执行计划
 ```json
-{json.dumps(execution_plan, indent=2, ensure_ascii=False)[:2000]}
+{json.dumps(execution_plan, indent=2, ensure_ascii=False)}
 ```
 """
 
@@ -254,13 +243,12 @@ class LLMClient:
         if table_metadata:
             prompt += self._format_table_metadata(table_metadata)
 
-
         # 添加规则违规信息
         if rule_violations:
             prompt += f"""
 ## 静态分析发现的问题
 ```json
-{json.dumps(rule_violations, indent=2, ensure_ascii=False)[:1000]}
+{json.dumps(rule_violations, indent=2, ensure_ascii=False)}
 ```
 """
 
@@ -318,27 +306,38 @@ class LLMClient:
 
     def _extract_json(self, text: str) -> Optional[str]:
         """从文本中提取 JSON"""
-        # 尝试找到 JSON 代码块
         import re
 
-        # 匹配 ```json ... ``` 格式
-        json_block = re.search(r'```json\s*(.*?)```', text, re.DOTALL)
+        # 匹配 ```json ... ``` 格式（允许没有结束标记）
+        json_block = re.search(r"```json\s*(.*)", text, re.DOTALL)
         if json_block:
-            return json_block.group(1).strip()
+            content = json_block.group(1).strip()
+            # 如果后面有 ``` 结束标记，截取到结束标记之前
+            end_marker = content.find("```")
+            if end_marker >= 0:
+                content = content[:end_marker].strip()
+            return content
 
         # 匹配 ``` ... ``` 格式
-        code_block = re.search(r'```\s*(\{.*?\})\s*```', text, re.DOTALL)
+        code_block = re.search(r"```\s*(\{.*)", text, re.DOTALL)
         if code_block:
-            return code_block.group(1).strip()
+            content = code_block.group(1).strip()
+            end_marker = content.find("```")
+            if end_marker >= 0:
+                content = content[:end_marker].strip()
+            return content
 
-        # 尝试找到最外层的大括号内容
-        try:
-            start = text.find('{')
-            end = text.rfind('}')
-            if start >= 0 and end > start:
-                return text[start:end+1]
-        except:
-            pass
+        # 使用括号深度匹配找到最外层的大括号内容
+        start = text.find("{")
+        if start >= 0:
+            depth = 0
+            for i in range(start, len(text)):
+                if text[i] == "{":
+                    depth += 1
+                elif text[i] == "}":
+                    depth -= 1
+                    if depth == 0:
+                        return text[start:i+1]
 
         return None
 
@@ -391,9 +390,14 @@ class SQLAnalyzer:
             import traceback
             logger.error(f"LLM 分析失败: {e}")
             logger.error(f"LLM 错误详情: {traceback.format_exc()}")
-            # 检查是否是SQL过长导致的错误
-            if len(sql_text) > 5000:
+            # 根据异常类型给出准确的提示
+            err_str = str(e).lower()
+            if "timeout" in err_str or isinstance(e, httpx.TimeoutException):
+                summary_msg = "LLM 分析超时（SQL较复杂或模型响应慢），请参考规则引擎结果。"
+            elif "context" in err_str or "token" in err_str or "length" in err_str:
                 summary_msg = "SQL语句过长，LLM分析无法完成。请参考规则引擎结果，或尝试分段分析。"
+            elif "connect" in err_str or "connection" in err_str:
+                summary_msg = "LLM 服务连接失败，请参考规则引擎结果。"
             else:
                 summary_msg = "LLM 分析暂时不可用，请参考规则引擎结果"
             llm_result = LLMAnalysisResult(
