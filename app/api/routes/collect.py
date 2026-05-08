@@ -316,17 +316,24 @@ async def upload_sql_file(
         raise HTTPException(status_code=500, detail=f"文件处理失败: {e}")
 
 @router.get("/metadata/{table_name}")
-async def get_table_metadata(table_name: str, owner: Optional[str] = None):
+async def get_table_metadata(
+    table_name: str,
+    owner: Optional[str] = None,
+    db_source_id: Optional[str] = None
+):
     """
     获取表的元数据信息
 
     包含表信息、列信息、索引信息。
+    支持通过 db_source_id 指定数据源，不传则使用默认数据源。
     """
-    if not oracle_client.is_connected:
-        raise HTTPException(status_code=503, detail="Oracle数据库未连接")
-
+    client = None
     try:
-        collector = MetadataCollector(oracle_client)
+        client = DynamicOracleClient()
+        client.connect_to_source(db_source_id)
+
+        from app.oracle.metadata import MetadataCollector
+        collector = MetadataCollector(client)
         metadata = collector.get_table_metadata(table_name, owner)
 
         if not metadata:
@@ -360,8 +367,13 @@ async def get_table_metadata(table_name: str, owner: Optional[str] = None):
             ],
         }
 
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except HTTPException:
         raise
     except Exception as e:
         logger.error(f"获取元数据失败: {e}")
         raise HTTPException(status_code=500, detail=f"获取元数据失败: {e}")
+    finally:
+        if client:
+            client.close()

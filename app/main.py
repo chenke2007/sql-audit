@@ -31,7 +31,8 @@ async def lifespan(app: FastAPI):
     """
     应用生命周期管理
 
-    启动时初始化Oracle连接，关闭时清理资源。
+    不再强制初始化默认Oracle连接。
+    所有数据库连接通过数据源管理动态获取。
     """
     # 启动
     logger.info(f"启动 {settings.app.name} ...")
@@ -39,12 +40,17 @@ async def lifespan(app: FastAPI):
     thick_ok = init_thick_mode()
     if not thick_ok:
         logger.info("未启用 thick 模式，将使用 thin 模式（要求 Oracle 12.1+）")
-    try:
-        oracle_client.initialize()
-        logger.info("Oracle连接初始化成功")
-    except OracleConnectionError as e:
-        logger.error(f"Oracle连接失败: {e}")
-        logger.warning("应用将以离线模式启动，SQL采集功能不可用")
+
+    # 不再强制初始化默认Oracle连接
+    # 如果 .env 中配置了默认连接，仍然尝试初始化（向后兼容）
+    if settings.oracle.host and settings.oracle.username:
+        try:
+            oracle_client.initialize()
+            logger.info("Oracle默认连接初始化成功")
+        except OracleConnectionError as e:
+            logger.warning(f"Oracle默认连接初始化失败: {e}，应用将以无默认连接模式运行")
+    else:
+        logger.info("未配置默认Oracle连接，完全依赖数据源管理模块")
 
     yield
 
@@ -91,8 +97,7 @@ async def serve_index():
     return {
         "name": settings.app.name,
         "version": "1.0.0",
-        "status": "running",
-        "oracle_connected": oracle_client.is_connected
+        "status": "running"
     }
 
 
@@ -103,7 +108,6 @@ async def api_root():
         "name": settings.app.name,
         "version": "1.0.0",
         "status": "running",
-        "oracle_connected": oracle_client.is_connected,
         "docs_url": "/docs"
     }
 
@@ -113,7 +117,6 @@ async def health_check():
     """详细健康检查"""
     return {
         "status": "healthy",
-        "oracle_connection": oracle_client.is_connected,
         "config_loaded": True
     }
 

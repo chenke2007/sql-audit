@@ -535,18 +535,21 @@ async def export_analysis_pdf(request: AnalyzeRequest):
 async def export_analysis_pdf_by_sql_id(
     sql_id: str,
     use_llm: bool = True,
-    use_rules: bool = True
+    use_rules: bool = True,
+    db_source_id: Optional[str] = None
 ):
     """
     通过 SQL_ID 导出分析结果为 PDF
 
     自动从数据库获取 SQL 文本和执行计划进行分析并导出 PDF。
+    支持通过 db_source_id 指定数据源，不传则使用默认数据源。
     """
-    if not oracle_client.is_connected:
-        raise HTTPException(status_code=503, detail="Oracle数据库未连接")
-
+    client = None
     try:
-        collector = SQLCollector(oracle_client)
+        client = DynamicOracleClient()
+        client.connect_to_source(db_source_id)
+
+        collector = SQLCollector(client)
         sql_obj = collector.get_sql_by_id(sql_id)
 
         if not sql_obj:
@@ -566,8 +569,13 @@ async def export_analysis_pdf_by_sql_id(
 
         return await export_analysis_pdf(request)
 
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except HTTPException:
         raise
     except Exception as e:
         logger.error(f"SQL_ID PDF 导出失败: {e}")
         raise HTTPException(status_code=500, detail=f"导出失败: {e}")
+    finally:
+        if client:
+            client.close()
