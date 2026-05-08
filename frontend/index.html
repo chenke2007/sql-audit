@@ -4,6 +4,17 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>SQL 智能审核系统</title>
+    <script>
+        // 抑制 Tailwind CDN 的生产环境警告（必须在 Tailwind 脚本之前执行）
+        (function() {
+            const origWarn = console.warn;
+            console.warn = function(...args) {
+                const msg = args.join(' ');
+                if (msg.includes('cdn.tailwindcss.com should not be used in production')) return;
+                origWarn.apply(console, args);
+            };
+        })();
+    </script>
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- Vue 3 (Global build) -->
@@ -26,6 +37,57 @@
         .menu-transition { transition: all 0.15s ease; }
         /* highlight.js 自定义 */
         .hljs { background: #1e1e1e; border-radius: 0.5rem; padding: 1rem; }
+
+        /* ===== 移动端响应式布局 ===== */
+        /* 小屏幕下侧边栏样式 */
+        @media (max-width: 767px) {
+            #app > div > nav.sidebar-nav {
+                position: fixed !important;
+                top: 65px !important;
+                left: 0 !important;
+                bottom: 0 !important;
+                z-index: 40 !important;
+                transform: translateX(-100%) !important;
+                transition: transform 0.3s ease !important;
+                box-shadow: 2px 0 8px rgba(0,0,0,0.15) !important;
+            }
+            #app > div > nav.sidebar-nav.open {
+                transform: translateX(0) !important;
+            }
+            .sidebar-overlay {
+                display: none;
+                position: fixed;
+                inset: 0;
+                background: rgba(0,0,0,0.3);
+                z-index: 35;
+            }
+            .sidebar-overlay.open {
+                display: block;
+            }
+            .main-content {
+                padding: 1rem !important;
+            }
+            .mobile-stack {
+                flex-direction: column !important;
+                align-items: stretch !important;
+            }
+            .mobile-stack > * {
+                width: 100% !important;
+                margin-left: 0 !important;
+                margin-right: 0 !important;
+            }
+            .hamburger-btn {
+                display: flex !important;
+            }
+        }
+        @media (min-width: 768px) {
+            .hamburger-btn {
+                display: none !important;
+            }
+            .sidebar-overlay {
+                display: none !important;
+            }
+        }
     </style>
 </head>
 <body class="bg-gray-100 min-h-screen">
@@ -34,6 +96,16 @@
         <header class="bg-white shadow-sm border-b flex-shrink-0">
             <div class="max-w-full mx-auto px-4 py-4 flex justify-between items-center">
                 <div class="flex items-center gap-3">
+                    <!-- 移动端汉堡菜单按钮 -->
+                    <button
+                        @click="toggleSidebar"
+                        class="hamburger-btn p-2 rounded-lg hover:bg-gray-100 text-gray-600"
+                        title="菜单"
+                    >
+                        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"></path>
+                        </svg>
+                    </button>
                     <svg class="w-8 h-8 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
                     </svg>
@@ -47,8 +119,15 @@
 
         <!-- Main Layout -->
         <div class="flex flex-1 overflow-hidden">
+            <!-- 移动端遮罩层 -->
+            <div
+                class="sidebar-overlay"
+                :class="{ open: sidebarOpen }"
+                @click="sidebarOpen = false"
+            ></div>
+
             <!-- Sidebar - Fixed -->
-            <nav class="w-48 flex-shrink-0 bg-white border-r overflow-y-auto">
+            <nav class="sidebar-nav w-48 flex-shrink-0 bg-white border-r overflow-y-auto" :class="{ open: sidebarOpen }">
                 <div class="p-2">
                     <button
                         v-for="item in menuItems"
@@ -65,13 +144,13 @@
             </nav>
 
             <!-- Main Content - Scrollable -->
-            <main class="flex-1 overflow-y-auto p-6">
+            <main class="main-content flex-1 overflow-y-auto p-6">
                 <div class="max-w-5xl mx-auto">
                 <!-- SQL Analysis -->
                 <div v-if="activeMenu === 'analyze'" class="space-y-6">
                     <!-- Data Source Selector -->
                     <div class="bg-white rounded-lg shadow-sm p-4">
-                        <div class="flex items-center gap-4 flex-wrap">
+                        <div class="flex items-center gap-4 flex-wrap mobile-stack">
                             <label class="text-sm font-medium text-gray-700">选择数据源:</label>
                             <select v-model="selectedAnalyzeSource" @change="onAnalyzeSourceChange" class="px-3 py-2 border rounded-lg min-w-[200px]">
                                 <option v-for="source in dbSources" :key="source.id" :value="source.id">
@@ -84,7 +163,7 @@
                             <button @click="loadDBSources" class="text-sm text-blue-600 hover:text-blue-800 ml-auto">刷新列表</button>
                         </div>
                         <!-- Schema Selector -->
-                        <div v-if="selectedAnalyzeSource" class="flex items-center gap-4 flex-wrap mt-3 pt-3 border-t">
+                        <div v-if="selectedAnalyzeSource" class="flex items-center gap-4 flex-wrap mobile-stack mt-3 pt-3 border-t">
                             <label class="text-sm font-medium text-gray-700">选择 Schema:</label>
                             <select v-model="selectedSchema" class="px-3 py-2 border rounded-lg min-w-[200px]">
                                 <option value="">请选择 Schema</option>
@@ -630,6 +709,7 @@
         createApp({
             setup() {
                 // State
+                const sidebarOpen = ref(false);
                 const activeMenu = ref('analyze');
                 const analyzeMode = ref('text');
                 const sqlText = ref('');
@@ -785,7 +865,10 @@
                             })
                         });
                         if (!res.ok) throw new Error('分析失败');
-                        analysisResult.value = await res.json();
+                        const data = await res.json();
+                        console.log('[analyzeSQL] API response:', data);
+                        analysisResult.value = data;
+                        console.log('[analyzeSQL] analysisResult set:', analysisResult.value);
                         showToast('分析完成', 'success');
                         // SQL 语法高亮
                         setTimeout(() => {
@@ -1026,6 +1109,8 @@
                 const handleMenuClick = (key) => {
                     // 立即切换菜单，提升响应速度
                     activeMenu.value = key;
+                    // 移动端点击菜单后自动关闭侧边栏
+                    sidebarOpen.value = false;
                     // 异步加载数据，不阻塞 UI
                     if (key === 'rules' && rules.value.length === 0) {
                         setTimeout(() => loadRules(), 0);
@@ -1033,6 +1118,9 @@
                     if (key === 'db_sources') {
                         setTimeout(() => loadDBSources(), 0);
                     }
+                };
+                const toggleSidebar = () => {
+                    sidebarOpen.value = !sidebarOpen.value;
                 };
                 const getRiskClass = (level) => ({
                     'CRITICAL': 'bg-red-100 text-red-700',
@@ -1248,6 +1336,7 @@
                 };
 
                 return {
+                    sidebarOpen, toggleSidebar,
                     activeMenu, analyzeMode, sqlText, sqlId,
                     useLLM, useRules, analyzing, exporting, collecting, collectionTopN, collectionError, excludeSystemSQL, loadingRules,
                     analysisResult, exportFormat, exportFormats, collectedSQLs, rules, toasts, fileInput,

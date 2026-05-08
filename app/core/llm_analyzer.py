@@ -165,52 +165,57 @@ class LLMClient:
 }"""
 
     def _format_table_metadata(self, table_metadata: Dict) -> str:
-        """将表元数据格式化为易读的文本"""
-        text = "\n## 数据库元数据（来自真实数据源，请基于此进行分析）\n\n"
+        """将表元数据格式化为易读的文本（使用列表 join 替代字符串拼接，提升性能）"""
+        lines = ["\n## 数据库元数据（来自真实数据源，请基于此进行分析）\n"]
 
         for table_key, meta in table_metadata.items():
-            text += f"### 表：{table_key}\n"
-            text += f"- 行数：{meta.get('row_count', '未知')} 行"
+            lines.append(f"### 表：{table_key}")
+            row_info = f"- 行数：{meta.get('row_count', '未知')} 行"
             last_analyzed = meta.get('last_analyzed')
             if last_analyzed:
-                text += f"，最近统计时间：{last_analyzed}"
-            text += "\n"
+                row_info += f"，最近统计时间：{last_analyzed}"
+            lines.append(row_info)
 
-            # 列信息
-            columns = meta.get('columns', [])
+            # 列信息（限制最多输出 50 列，避免提示词过大）
+            columns = meta.get('columns', [])[:50]
             if columns:
-                text += "- 列信息：\n"
-                text += "  | 列名 | 类型 | 可空 | NDV | Density | 空值数 |\n"
-                text += "  |------|------|------|-----|---------|--------|\n"
+                lines.append("- 列信息：")
+                lines.append("  | 列名 | 类型 | 可空 | NDV | Density | 空值数 |")
+                lines.append("  |------|------|------|-----|---------|--------|")
                 for col in columns:
                     ndv = col.get('num_distinct', 'N/A')
                     density = col.get('density', 'N/A')
                     nulls = col.get('num_nulls', 'N/A')
                     nullable = 'Y' if col.get('nullable') else 'N'
-                    text += f"  | {col['name']} | {col['type']} | {nullable} | {ndv} | {density} | {nulls} |\n"
+                    lines.append(
+                        f"  | {col['name']} | {col['type']} | {nullable} | {ndv} | {density} | {nulls} |"
+                    )
+                remaining = len(meta.get('columns', [])) - 50
+                if remaining > 0:
+                    lines.append(f"  ... 还有 {remaining} 列未显示")
 
             # 已有索引
             indexes = meta.get('indexes', [])
             if indexes:
-                text += "- 已有索引：\n"
+                lines.append("- 已有索引：")
                 for idx in indexes:
                     uniq = '唯一' if idx.get('uniqueness') == 'UNIQUE' else '非唯一'
-                    text += f"  - {idx['name']} ({uniq})：{', '.join(idx.get('columns', []))}\n"
+                    lines.append(f"  - {idx['name']} ({uniq})：{', '.join(idx.get('columns', []))}")
             else:
-                text += "- 已有索引：无\n"
+                lines.append("- 已有索引：无")
 
             # 约束
             constraints = meta.get('constraints', [])
             if constraints:
-                text += "- 约束：\n"
+                lines.append("- 约束：")
                 for cons in constraints:
                     type_map = {'P': '主键', 'U': '唯一', 'R': '外键'}
                     ctype = type_map.get(cons.get('type'), cons.get('type'))
-                    text += f"  - {cons['name']} ({ctype})：{', '.join(cons.get('columns', []))}\n"
+                    lines.append(f"  - {cons['name']} ({ctype})：{', '.join(cons.get('columns', []))}")
 
-            text += "\n"
+            lines.append("")
 
-        return text
+        return "\n".join(lines)
 
     def _build_analysis_prompt(
         self,

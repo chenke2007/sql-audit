@@ -230,23 +230,27 @@ async def analyze_sql(request: AnalyzeRequest):
             recommendations=[]
         )
 
+        # ===== 统一获取执行计划和表元数据（只获取一次，供规则引擎和 LLM 共用）=====
+        shared_execution_plan = None
+        shared_table_metadata = None
+
+        if request.include_plan and request.sql_id:
+            shared_execution_plan = _get_execution_plan(request.sql_id, client)
+
+        if parsed.tables:
+            shared_table_metadata = _get_table_metadata(
+                list(parsed.tables), schema=request.schema, client=client
+            )
+
         # 规则引擎分析
         rule_result = None
         if request.use_rules:
             try:
                 context = {}
-
-                # 如果有 SQL ID，获取执行计划
-                if request.include_plan and request.sql_id:
-                    plan = _get_execution_plan(request.sql_id, client)
-                    if plan:
-                        context["execution_plan"] = plan
-
-                # 获取表元数据
-                if parsed.tables:
-                    metadata = _get_table_metadata(list(parsed.tables), schema=request.schema, client=client)
-                    if metadata:
-                        context["table_metadata"] = metadata
+                if shared_execution_plan:
+                    context["execution_plan"] = shared_execution_plan
+                if shared_table_metadata:
+                    context["table_metadata"] = shared_table_metadata
 
                 rule_result = rule_engine.analyze(request.sql_text, request.sql_id, context)
 
@@ -265,19 +269,9 @@ async def analyze_sql(request: AnalyzeRequest):
             except Exception as e:
                 logger.error(f"规则引擎分析失败: {e}")
 
-        # LLM 分析
+        # LLM 分析（直接复用已获取的执行计划和元数据，避免重复查询）
         if request.use_llm:
             try:
-                # 准备执行计划和元数据
-                execution_plan = None
-                table_metadata = None
-
-                if request.include_plan and request.sql_id:
-                    execution_plan = _get_execution_plan(request.sql_id, client)
-
-                if parsed.tables:
-                    table_metadata = _get_table_metadata(list(parsed.tables), schema=request.schema, client=client)
-
                 # 准备规则结果
                 rule_result_dict = None
                 if rule_result:
@@ -297,8 +291,8 @@ async def analyze_sql(request: AnalyzeRequest):
                 analysis = await sql_analyzer.analyze(
                     sql_text=request.sql_text,
                     sql_id=request.sql_id,
-                    execution_plan=execution_plan,
-                    table_metadata=table_metadata,
+                    execution_plan=shared_execution_plan,
+                    table_metadata=shared_table_metadata,
                     rule_result=rule_result_dict
                 )
 
