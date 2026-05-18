@@ -92,526 +92,1064 @@
 </head>
 <body class="bg-gray-100 min-h-screen">
     <div id="app" v-cloak class="h-screen flex flex-col">
-        <!-- Header - Fixed -->
-        <header class="bg-white shadow-sm border-b flex-shrink-0">
-            <div class="max-w-full mx-auto px-4 py-4 flex justify-between items-center">
-                <div class="flex items-center gap-3">
-                    <!-- 移动端汉堡菜单按钮 -->
-                    <button
-                        @click="toggleSidebar"
-                        class="hamburger-btn p-2 rounded-lg hover:bg-gray-100 text-gray-600"
-                        title="菜单"
-                    >
-                        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"></path>
-                        </svg>
-                    </button>
-                    <svg class="w-8 h-8 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <!-- Login Screen -->
+        <div v-if="!isLoggedIn" class="fixed inset-0 bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center z-50">
+            <div class="bg-white rounded-xl shadow-xl p-8 w-full max-w-md mx-4">
+                <div class="text-center mb-8">
+                    <svg class="w-16 h-16 text-blue-600 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z"></path>
                     </svg>
-                    <h1 class="text-xl font-bold text-gray-800">SQL 智能审核系统</h1>
+                    <h1 class="text-2xl font-bold text-gray-800">SQL 智能审核系统</h1>
+                    <p class="text-gray-500 mt-1">企业内网 SQL 审核工具</p>
                 </div>
-                <div class="flex items-center gap-2">
-                    <span class="text-gray-500 text-sm">v1.2.0</span>
-                </div>
-            </div>
-        </header>
-
-        <!-- Main Layout -->
-        <div class="flex flex-1 overflow-hidden">
-            <!-- 移动端遮罩层 -->
-            <div
-                class="sidebar-overlay"
-                :class="{ open: sidebarOpen }"
-                @click="sidebarOpen = false"
-            ></div>
-
-            <!-- Sidebar - Fixed -->
-            <nav class="sidebar-nav w-48 flex-shrink-0 bg-white border-r overflow-y-auto" :class="{ open: sidebarOpen }">
-                <div class="p-2">
-                    <button
-                        v-for="item in menuItems"
-                        :key="item.key"
-                        @click="handleMenuClick(item.key)"
-                        :class="['w-full text-left px-4 py-3 flex items-center gap-3 menu-transition rounded-lg', activeMenu === item.key ? 'bg-blue-50 text-blue-600' : 'text-gray-600 hover:bg-gray-50']"
-                    >
-                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" :d="item.icon"></path>
+                <div class="space-y-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">用户名</label>
+                        <input v-model="loginForm.username" @keyup.enter="doLogin" class="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500" placeholder="请输入用户名">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">密码</label>
+                        <input v-model="loginForm.password" @keyup.enter="doLogin" type="password" class="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500" placeholder="请输入密码">
+                    </div>
+                    <div v-if="loginError" class="bg-red-50 border border-red-200 rounded-lg p-3 text-sm text-red-700">
+                        {{ loginError }}
+                    </div>
+                    <button @click="doLogin" :disabled="loggingIn" class="w-full py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-300 font-medium flex items-center justify-center gap-2">
+                        <svg v-if="loggingIn" class="animate-spin h-4 w-4" fill="none" viewBox="0 0 24 24">
+                            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                         </svg>
-                        {{ item.label }}
+                        {{ loggingIn ? '登录中...' : '登录' }}
                     </button>
                 </div>
-            </nav>
+                <div class="mt-6 text-center text-xs text-gray-400">
+                    默认管理员: admin / admin123
+                </div>
+            </div>
+        </div>
 
-            <!-- Main Content - Scrollable -->
-            <main class="main-content flex-1 overflow-y-auto p-6">
-                <div class="max-w-5xl mx-auto">
-                <!-- SQL Analysis -->
-                <div v-if="activeMenu === 'analyze'" class="space-y-6">
-                    <!-- Data Source Selector -->
-                    <div class="bg-white rounded-lg shadow-sm p-4">
-                        <div class="flex items-center gap-4 flex-wrap mobile-stack">
-                            <label class="text-sm font-medium text-gray-700">选择数据源:</label>
-                            <select v-model="selectedAnalyzeSource" @change="onAnalyzeSourceChange" class="px-3 py-2 border rounded-lg min-w-[200px]">
-                                <option v-for="source in dbSources" :key="source.id" :value="source.id">
-                                    {{ source.name }} ({{ source.db_type?.toUpperCase() }})
-                                </option>
-                            </select>
-                            <span v-if="selectedAnalyzeSource" class="text-sm text-gray-500">
-                                {{ dbSources.find(s => s.id === selectedAnalyzeSource)?.host }}:{{ dbSources.find(s => s.id === selectedAnalyzeSource)?.port }}
-                            </span>
-                            <button @click="loadDBSources" class="text-sm text-blue-600 hover:text-blue-800 ml-auto">刷新列表</button>
-                        </div>
-                        <!-- Schema Selector -->
-                        <div v-if="selectedAnalyzeSource" class="flex items-center gap-4 flex-wrap mobile-stack mt-3 pt-3 border-t">
-                            <label class="text-sm font-medium text-gray-700">选择 Schema:</label>
-                            <select v-model="selectedSchema" class="px-3 py-2 border rounded-lg min-w-[200px]">
-                                <option value="">请选择 Schema</option>
-                                <option v-for="schema in schemaList" :key="schema" :value="schema">
-                                    {{ schema }}
-                                </option>
-                            </select>
-                            <span v-if="loadingSchemas" class="text-sm text-gray-400">加载中...</span>
-                            <span v-else-if="schemaList.length === 0" class="text-sm text-orange-500">⚠ 未获取到 Schema 列表</span>
+        <!-- Main App (after login) -->
+        <template v-if="isLoggedIn">
+            <!-- Header - Fixed -->
+            <header class="bg-white shadow-sm border-b flex-shrink-0">
+                <div class="max-w-full mx-auto px-4 py-3 flex justify-between items-center">
+                    <div class="flex items-center gap-3">
+                        <!-- 移动端汉堡菜单按钮 -->
+                        <button
+                            @click="toggleSidebar"
+                            class="hamburger-btn p-2 rounded-lg hover:bg-gray-100 text-gray-600"
+                            title="菜单"
+                        >
+                            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"></path>
+                            </svg>
+                        </button>
+                        <svg class="w-8 h-8 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z"></path>
+                        </svg>
+                        <h1 class="text-xl font-bold text-gray-800">SQL 智能审核系统</h1>
+                    </div>
+                    <div class="flex items-center gap-4">
+                        <span class="text-gray-500 text-sm">v1.3.0</span>
+                        <!-- User Menu -->
+                        <div class="relative">
+                            <button @click="showUserMenu = !showUserMenu" class="flex items-center gap-2 text-sm text-gray-700 hover:text-gray-900 px-3 py-1.5 rounded-lg hover:bg-gray-100">
+                                <svg class="w-5 h-5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"></path>
+                                </svg>
+                                <span>{{ currentUser?.real_name || currentUser?.username }}</span>
+                                <svg class="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
+                                </svg>
+                            </button>
+                            <div v-if="showUserMenu" class="absolute right-0 mt-1 w-48 bg-white rounded-lg shadow-lg border z-50">
+                                <div class="px-4 py-2 border-b text-xs text-gray-500">
+                                    角色: {{ currentUser?.roles?.join(', ') || '无' }}
+                                </div>
+                                <button @click="activeMenu = 'profile'; showUserMenu = false" class="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2">
+                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"></path></svg>
+                                    个人中心
+                                </button>
+                                <button @click="handleMenuClick('history'); showUserMenu = false" class="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2">
+                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                                    分析历史
+                                </button>
+                                <div v-if="hasPermission('user:manage')" class="border-t">
+                                    <button @click="handleMenuClick('users'); showUserMenu = false" class="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2">
+                                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"></path></svg>
+                                        用户管理
+                                    </button>
+                                    <button @click="handleMenuClick('roles'); showUserMenu = false" class="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2">
+                                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"></path></svg>
+                                        角色权限
+                                    </button>
+                                </div>
+                                <div class="border-t">
+                                    <button @click="doLogout" class="w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50 flex items-center gap-2">
+                                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"></path></svg>
+                                        退出登录
+                                    </button>
+                                </div>
+                            </div>
                         </div>
                     </div>
+                </div>
+            </header>
 
-                    <!-- Input Card -->
-                    <div class="bg-white rounded-lg shadow-sm p-6">
-                        <div class="flex gap-2 mb-4">
-                            <button
-                                v-for="mode in inputModes"
-                                :key="mode.key"
-                                @click="analyzeMode = mode.key"
-                                :class="['px-4 py-2 rounded-lg text-sm font-medium transition-colors', analyzeMode === mode.key ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200']"
-                            >
-                                {{ mode.label }}
-                            </button>
+            <!-- Main Layout -->
+            <div class="flex flex-1 overflow-hidden">
+                <!-- 移动端遮罩层 -->
+                <div
+                    class="sidebar-overlay"
+                    :class="{ open: sidebarOpen }"
+                    @click="sidebarOpen = false"
+                ></div>
+
+                <!-- Sidebar - Fixed -->
+                <nav class="sidebar-nav w-48 flex-shrink-0 bg-white border-r overflow-y-auto" :class="{ open: sidebarOpen }">
+                    <div class="p-2">
+                        <button
+                            v-for="item in visibleMenuItems"
+                            :key="item.key"
+                            @click="handleMenuClick(item.key)"
+                            :class="['w-full text-left px-4 py-3 flex items-center gap-3 menu-transition rounded-lg', activeMenu === item.key ? 'bg-blue-50 text-blue-600' : 'text-gray-600 hover:bg-gray-50']"
+                        >
+                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" :d="item.icon"></path>
+                            </svg>
+                            {{ item.label }}
+                        </button>
+                    </div>
+                </nav>
+
+                <!-- Main Content - Scrollable -->
+                <main class="main-content flex-1 overflow-y-auto p-6">
+                    <div class="max-w-5xl mx-auto">
+                    <!-- SQL Analysis -->
+                    <div v-if="activeMenu === 'analyze'" class="space-y-6">
+                        <!-- Data Source & Schema Selector -->
+                        <div class="bg-white rounded-lg shadow-sm p-4">
+                            <div class="flex items-center gap-6 flex-wrap">
+                                <!-- Data Source -->
+                                <div class="flex items-center gap-2">
+                                    <label class="text-sm font-medium text-gray-700">选择数据源:</label>
+                                    <select v-model="selectedAnalyzeSource" @change="onAnalyzeSourceChange" class="px-3 py-2 border rounded-lg min-w-[200px]">
+                                        <option v-for="source in dbSources" :key="source.id" :value="source.id">
+                                            {{ source.name }} ({{ source.db_type?.toUpperCase() }})
+                                        </option>
+                                    </select>
+                                    <span v-if="selectedAnalyzeSource" class="text-sm text-gray-500">
+                                        {{ dbSources.find(s => s.id === selectedAnalyzeSource)?.host }}:{{ dbSources.find(s => s.id === selectedAnalyzeSource)?.port }}
+                                    </span>
+                                </div>
+                                <!-- Schema -->
+                                <div v-if="selectedAnalyzeSource" class="flex items-center gap-2">
+                                    <label class="text-sm font-medium text-gray-700">选择 Schema:</label>
+                                    <select v-model="selectedSchema" class="px-3 py-2 border rounded-lg min-w-[160px]">
+                                        <option value="">请选择 Schema</option>
+                                        <option v-for="schema in schemaList" :key="schema" :value="schema">
+                                            {{ schema }}
+                                        </option>
+                                    </select>
+                                    <span v-if="loadingSchemas" class="text-sm text-gray-400">加载中...</span>
+                                    <span v-else-if="schemaList.length === 0" class="text-sm text-orange-500">未获取到 Schema 列表</span>
+                                </div>
+                                <button @click="loadDBSources" class="text-sm text-blue-600 hover:text-blue-800 ml-auto">刷新列表</button>
+                            </div>
                         </div>
 
-                        <!-- Text Input -->
-                        <div v-if="analyzeMode === 'text'">
-                            <textarea
-                                v-model="sqlText"
-                                rows="8"
-                                placeholder="请输入需要分析的 SQL 语句...&#10;示例: SELECT id, name FROM users WHERE status = 'active'"
-                                class="w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sql-code text-sm"
-                                spellcheck="false"
-                            ></textarea>
-                            <!-- 输入提示 -->
-                            <div class="mt-2 text-xs text-gray-500 flex items-center gap-4">
-                                <span v-if="!sqlText.trim()" class="text-orange-500">⚠ 请先输入 SQL 语句</span>
-                                <span v-else-if="!selectedAnalyzeSource" class="text-orange-500">⚠ 请先选择数据源</span>
-                                <span v-else-if="!selectedSchema" class="text-orange-500">⚠ 请先选择 Schema</span>
-                                <span v-else class="text-green-600">✓ 准备就绪，点击"开始分析"</span>
+                        <!-- Input Card -->
+                        <div class="bg-white rounded-lg shadow-sm p-6">
+                            <div class="flex gap-2 mb-4">
+                                <button
+                                    v-for="mode in inputModes"
+                                    :key="mode.key"
+                                    @click="analyzeMode = mode.key"
+                                    :class="['px-4 py-2 rounded-lg text-sm font-medium transition-colors', analyzeMode === mode.key ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200']"
+                                >
+                                    {{ mode.label }}
+                                </button>
                             </div>
-                            <div class="flex items-center justify-between mt-4">
-                                <div class="flex gap-4">
+
+                            <!-- Text Input -->
+                            <div v-if="analyzeMode === 'text'">
+                                <textarea
+                                    v-model="sqlText"
+                                    rows="8"
+                                    placeholder="请输入需要分析的 SQL 语句...&#10;示例: SELECT id, name FROM users WHERE status = 'active'"
+                                    class="w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sql-code text-sm"
+                                    spellcheck="false"
+                                ></textarea>
+                                <!-- 输入提示 -->
+                                <div class="mt-2 text-xs text-gray-500 flex items-center gap-4">
+                                    <span v-if="!sqlText.trim()" class="text-orange-500">请先输入 SQL 语句</span>
+                                    <span v-else-if="!selectedAnalyzeSource" class="text-orange-500">请先选择数据源</span>
+                                    <span v-else-if="!selectedSchema" class="text-orange-500">请先选择 Schema</span>
+                                    <span v-else class="text-green-600">准备就绪，点击"开始分析"</span>
+                                </div>
+                                <div class="flex items-center justify-between mt-4">
+                                    <div class="flex gap-4">
+                                        <label class="flex items-center gap-2 cursor-pointer">
+                                            <input type="checkbox" v-model="useLLM" class="w-4 h-4 text-blue-600 rounded">
+                                            <span class="text-sm text-gray-600">启用 AI 分析</span>
+                                        </label>
+                                        <label class="flex items-center gap-2 cursor-pointer">
+                                            <input type="checkbox" v-model="useRules" class="w-4 h-4 text-blue-600 rounded">
+                                            <span class="text-sm text-gray-600">启用规则检查</span>
+                                        </label>
+                                    </div>
+                                    <button
+                                        @click="analyzeSQL"
+                                        :disabled="analyzing || !sqlText.trim() || !selectedAnalyzeSource || !selectedSchema"
+                                        class="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed flex items-center gap-2"
+                                    >
+                                        <svg v-if="analyzing" class="animate-spin h-4 w-4" fill="none" viewBox="0 0 24 24">
+                                            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                                            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                        </svg>
+                                        {{ analyzing ? '分析中...' : '开始分析' }}
+                                    </button>
+                                </div>
+                            </div>
+
+                            <!-- SQL_ID Input -->
+                            <div v-if="analyzeMode === 'sql_id'">
+                                <input
+                                    v-model="sqlId"
+                                    placeholder="请输入 SQL_ID (如: 1a2b3c4d...)"
+                                    class="w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-blue-500 mb-4"
+                                >
+                                <div class="flex items-center justify-between">
                                     <label class="flex items-center gap-2 cursor-pointer">
                                         <input type="checkbox" v-model="useLLM" class="w-4 h-4 text-blue-600 rounded">
                                         <span class="text-sm text-gray-600">启用 AI 分析</span>
                                     </label>
-                                    <label class="flex items-center gap-2 cursor-pointer">
-                                        <input type="checkbox" v-model="useRules" class="w-4 h-4 text-blue-600 rounded">
-                                        <span class="text-sm text-gray-600">启用规则检查</span>
-                                    </label>
-                                </div>
-                                <button
-                                    @click="analyzeSQL"
-                                    :disabled="analyzing || !sqlText.trim() || !selectedAnalyzeSource || !selectedSchema"
-                                    class="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed flex items-center gap-2"
-                                >
-                                    <svg v-if="analyzing" class="animate-spin h-4 w-4" fill="none" viewBox="0 0 24 24">
-                                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                                    </svg>
-                                    {{ analyzing ? '分析中...' : '开始分析' }}
-                                </button>
-                            </div>
-                        </div>
-
-                        <!-- SQL_ID Input -->
-                        <div v-if="analyzeMode === 'sql_id'">
-                            <input
-                                v-model="sqlId"
-                                placeholder="请输入 SQL_ID (如: 1a2b3c4d...)"
-                                class="w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-blue-500 mb-4"
-                            >
-                            <div class="flex items-center justify-between">
-                                <label class="flex items-center gap-2 cursor-pointer">
-                                    <input type="checkbox" v-model="useLLM" class="w-4 h-4 text-blue-600 rounded">
-                                    <span class="text-sm text-gray-600">启用 AI 分析</span>
-                                </label>
-                                <button
-                                    @click="analyzeBySqlId"
-                                    :disabled="analyzing || !sqlId.trim() || !selectedAnalyzeSource"
-                                    class="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-300"
-                                >
-                                    {{ analyzing ? '分析中...' : '从数据库查询并分析' }}
-                                </button>
-                            </div>
-                            <p v-if="!selectedAnalyzeSource" class="text-orange-500 text-sm mt-2">请先选择数据源</p>
-                        </div>
-
-                        <!-- File Upload -->
-                        <div v-if="analyzeMode === 'file'" class="border-2 border-dashed border-gray-300 rounded-lg p-12 text-center hover:border-blue-500 transition-colors">
-                            <svg class="mx-auto h-12 w-12 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"></path>
-                            </svg>
-                            <p class="mt-4 text-gray-600">拖拽文件到此处或 <button @click="triggerFileUpload" class="text-blue-600 hover:underline">点击上传</button></p>
-                            <p class="mt-2 text-sm text-gray-500">支持 .sql, .txt 文件</p>
-                            <input type="file" ref="fileInput" @change="handleFileUpload" accept=".sql,.txt" class="hidden">
-                        </div>
-                    </div>
-
-                    <!-- Results Card -->
-                    <div v-if="analysisResult" class="bg-white rounded-lg shadow-sm p-6 min-w-0">
-                        <!-- 元数据来源标注 -->
-                        <div v-if="selectedAnalyzeSource && selectedSchema" class="mb-4 p-3 bg-blue-50 border border-blue-100 rounded-lg text-sm text-blue-800 flex items-center gap-2">
-                            <svg class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
-                            </svg>
-                            <span>本次分析基于 <strong>{{ dbSources.find(s => s.id === selectedAnalyzeSource)?.name }}</strong> / Schema: <strong>{{ selectedSchema }}</strong> 的实时元数据</span>
-                        </div>
-
-                        <div class="flex flex-col sm:flex-row sm:items-center justify-between mb-4 gap-3">
-                            <h2 class="text-lg font-semibold">分析结果</h2>
-                            <div class="flex items-center gap-3 flex-wrap">
-                                <div class="flex items-center">
-                                    <select
-                                        v-model="exportFormat"
-                                        class="px-3 py-2 border border-r-0 rounded-l-lg bg-white text-sm text-gray-700 focus:ring-2 focus:ring-green-500 focus:border-green-500"
-                                        title="选择导出格式"
-                                    >
-                                        <option v-for="fmt in exportFormats" :key="fmt.value" :value="fmt.value">
-                                            {{ fmt.label }}
-                                        </option>
-                                    </select>
                                     <button
-                                        @click="exportReport"
-                                        :disabled="exporting"
-                                        class="px-4 py-2 bg-green-600 text-white rounded-r-lg hover:bg-green-700 disabled:bg-gray-300 flex items-center gap-2 text-sm"
+                                        @click="analyzeBySqlId"
+                                        :disabled="analyzing || !sqlId.trim() || !selectedAnalyzeSource"
+                                        class="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-300"
                                     >
-                                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
-                                        </svg>
-                                        {{ exporting ? '导出中...' : '导出' }}
+                                        {{ analyzing ? '分析中...' : '从数据库查询并分析' }}
                                     </button>
                                 </div>
-                                <span :class="['px-3 py-1 rounded-full text-sm font-medium', getRiskClass(analysisResult.risk_level)]">
-                                    {{ analysisResult.risk_level || '未知' }} 风险
-                                </span>
+                                <p v-if="!selectedAnalyzeSource" class="text-orange-500 text-sm mt-2">请先选择数据源</p>
+                            </div>
+
+                            <!-- File Upload -->
+                            <div v-if="analyzeMode === 'file'" class="border-2 border-dashed border-gray-300 rounded-lg p-12 text-center hover:border-blue-500 transition-colors">
+                                <svg class="mx-auto h-12 w-12 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"></path>
+                                </svg>
+                                <p class="mt-4 text-gray-600">拖拽文件到此处或 <button @click="triggerFileUpload" class="text-blue-600 hover:underline">点击上传</button></p>
+                                <p class="mt-2 text-sm text-gray-500">支持 .sql, .txt 文件</p>
+                                <input type="file" ref="fileInput" @change="handleFileUpload" accept=".sql,.txt" class="hidden">
                             </div>
                         </div>
 
-                        <!-- SQL Display -->
-                        <div class="mb-6">
-                            <h3 class="text-sm font-medium text-gray-700 mb-2">SQL 语句</h3>
-                            <pre class="bg-gray-900 text-gray-100 p-4 rounded-lg sql-code text-sm overflow-x-auto whitespace-pre-wrap break-all"><code class="language-sql">{{ analysisResult.sql_text || sqlText }}</code></pre>
-                        </div>
+                        <!-- Results Card -->
+                        <div v-if="analysisResult" class="bg-white rounded-lg shadow-sm p-6 min-w-0">
+                            <!-- 元数据来源标注 -->
+                            <div v-if="selectedAnalyzeSource && selectedSchema" class="mb-4 p-3 bg-blue-50 border border-blue-100 rounded-lg text-sm text-blue-800 flex items-center gap-2">
+                                <svg class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                                </svg>
+                                <span>本次分析基于 <strong>{{ dbSources.find(s => s.id === selectedAnalyzeSource)?.name }}</strong> / Schema: <strong>{{ selectedSchema }}</strong> 的实时元数据</span>
+                            </div>
 
-                        <!-- Rule Violations -->
-                        <div v-if="analysisResult.rule_violations?.length" class="mb-6">
-                            <h3 class="text-sm font-medium text-gray-700 mb-3">规则检查问题 ({{ analysisResult.rule_violations.length }})</h3>
-                            <div class="space-y-3">
-                                <div v-for="(v, index) in analysisResult.rule_violations" :key="index" class="border rounded-lg p-4">
-                                    <div class="flex flex-col sm:flex-row sm:items-center gap-2 mb-2">
-                                        <span :class="['px-2 py-1 rounded text-xs font-medium self-start', getSeverityClass(v.severity)]">{{ v.severity }}</span>
-                                        <span class="font-medium break-words">{{ v.rule_id }}: {{ v.rule_name }}</span>
+                            <div class="flex flex-col sm:flex-row sm:items-center justify-between mb-4 gap-3">
+                                <h2 class="text-lg font-semibold">分析结果</h2>
+                                <div class="flex items-center gap-3 flex-wrap">
+                                    <div class="flex items-center">
+                                        <select
+                                            v-model="exportFormat"
+                                            class="px-3 py-2 border border-r-0 rounded-l-lg bg-white text-sm text-gray-700 focus:ring-2 focus:ring-green-500 focus:border-green-500"
+                                            title="选择导出格式"
+                                        >
+                                            <option v-for="fmt in exportFormats" :key="fmt.value" :value="fmt.value">
+                                                {{ fmt.label }}
+                                            </option>
+                                        </select>
+                                        <button
+                                            @click="exportReport"
+                                            :disabled="exporting"
+                                            class="px-4 py-2 bg-green-600 text-white rounded-r-lg hover:bg-green-700 disabled:bg-gray-300 flex items-center gap-2 text-sm"
+                                        >
+                                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+                                            </svg>
+                                            {{ exporting ? '导出中...' : '导出' }}
+                                        </button>
                                     </div>
-                                    <p class="text-gray-600 text-sm mb-1 break-words">{{ v.message }}</p>
-                                    <p class="text-blue-600 text-sm break-words">{{ v.suggestion }}</p>
+                                    <span :class="['px-3 py-1 rounded-full text-sm font-medium', getRiskClass(analysisResult.risk_level)]">
+                                        {{ analysisResult.risk_level || '未知' }} 风险
+                                    </span>
                                 </div>
                             </div>
-                        </div>
 
-                        <!-- LLM Analysis -->
-                        <div v-if="analysisResult.llm_analysis">
-                            <h3 class="text-sm font-medium text-gray-700 mb-3">AI 智能分析</h3>
-                            <div class="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-4">
-                                <p class="text-blue-800 break-words">{{ analysisResult.llm_analysis.summary }}</p>
+                            <!-- SQL Display -->
+                            <div class="mb-6">
+                                <h3 class="text-sm font-medium text-gray-700 mb-2">SQL 语句</h3>
+                                <pre class="bg-gray-900 text-gray-100 p-4 rounded-lg sql-code text-sm overflow-x-auto whitespace-pre-wrap break-all"><code class="language-sql">{{ analysisResult.sql_text || sqlText }}</code></pre>
                             </div>
 
-                            <!-- Issues -->
-                            <div v-if="analysisResult.llm_analysis.issues?.length" class="mb-4">
-                                <h4 class="font-medium text-gray-700 mb-2">发现的问题</h4>
-                                <div class="space-y-2">
-                                    <div v-for="(issue, i) in analysisResult.llm_analysis.issues" :key="i" class="border-l-4 pl-3 py-2" :class="{'border-red-500 bg-red-50': issue.severity === 'high', 'border-yellow-500 bg-yellow-50': issue.severity === 'medium', 'border-blue-500 bg-blue-50': issue.severity === 'low'}">
-                                        <div class="flex flex-col sm:flex-row sm:items-center gap-2">
-                                            <span class="text-xs font-medium px-2 py-0.5 rounded self-start" :class="{'bg-red-200 text-red-800': issue.severity === 'high', 'bg-yellow-200 text-yellow-800': issue.severity === 'medium', 'bg-blue-200 text-blue-800': issue.severity === 'low'}">{{ issue.severity }}</span>
-                                            <span class="font-medium text-sm break-words">{{ issue.description }}</span>
-                                        </div>
-                                        <p v-if="issue.impact" class="text-gray-600 text-sm mt-1 break-words">影响: {{ issue.impact }}</p>
-                                    </div>
-                                </div>
-                            </div>
-
-                            <!-- Index Suggestions -->
-                            <div v-if="analysisResult.llm_analysis.index_suggestions?.length" class="mb-4">
-                                <h4 class="font-medium text-gray-700 mb-2">索引建议</h4>
+                            <!-- Rule Violations -->
+                            <div v-if="analysisResult.rule_violations?.length" class="mb-6">
+                                <h3 class="text-sm font-medium text-gray-700 mb-3">规则检查问题 ({{ analysisResult.rule_violations.length }})</h3>
                                 <div class="space-y-3">
-                                    <div v-for="(idx, i) in analysisResult.llm_analysis.index_suggestions" :key="i"
-                                         :class="['border rounded-lg p-4 min-w-0', idx.note ? 'bg-yellow-50 border-yellow-200' : 'bg-green-50 border-green-200']">
-                                        <div class="flex items-center justify-between mb-2 flex-wrap gap-2">
-                                            <span class="font-medium" :class="idx.note ? 'text-yellow-900' : 'text-green-900'">{{ idx.table }} 表</span>
-                                            <span v-if="idx.estimate_benefit" class="text-xs px-2 py-1 rounded"
-                                                  :class="idx.note ? 'bg-yellow-200 text-yellow-800' : 'bg-green-200 text-green-800'"
-                                            >{{ idx.estimate_benefit }}</span>
+                                    <div v-for="(v, index) in analysisResult.rule_violations" :key="index" class="border rounded-lg p-4">
+                                        <div class="flex flex-col sm:flex-row sm:items-center gap-2 mb-2">
+                                            <span :class="['px-2 py-1 rounded text-xs font-medium self-start', getSeverityClass(v.severity)]">{{ v.severity }}</span>
+                                            <span class="font-medium break-words">{{ v.rule_id }}: {{ v.rule_name }}</span>
                                         </div>
-                                        <p class="text-sm mb-2 break-words" :class="idx.note ? 'text-yellow-700' : 'text-green-700'"
-                                        >列: {{ idx.columns?.join(', ') || '-' }}</p>
-                                        <!-- 重复索引提示 -->
-                                        <div v-if="idx.note" class="bg-yellow-100 border border-yellow-300 text-yellow-800 p-2 rounded text-sm mb-2">
-                                            ⚠️ {{ idx.note }}
+                                        <p class="text-gray-600 text-sm mb-1 break-words">{{ v.message }}</p>
+                                        <p class="text-blue-600 text-sm break-words">{{ v.suggestion }}</p>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- LLM Analysis -->
+                            <div v-if="analysisResult.llm_analysis">
+                                <h3 class="text-sm font-medium text-gray-700 mb-3">AI 智能分析</h3>
+                                <div class="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-4">
+                                    <p class="text-blue-800 break-words">{{ analysisResult.llm_analysis.summary }}</p>
+                                </div>
+
+                                <!-- Issues -->
+                                <div v-if="analysisResult.llm_analysis.issues?.length" class="mb-4">
+                                    <h4 class="font-medium text-gray-700 mb-2">发现的问题</h4>
+                                    <div class="space-y-2">
+                                        <div v-for="(issue, i) in analysisResult.llm_analysis.issues" :key="i" class="border-l-4 pl-3 py-2" :class="{'border-red-500 bg-red-50': issue.severity === 'high', 'border-yellow-500 bg-yellow-50': issue.severity === 'medium', 'border-blue-500 bg-blue-50': issue.severity === 'low'}">
+                                            <div class="flex flex-col sm:flex-row sm:items-center gap-2">
+                                                <span class="text-xs font-medium px-2 py-0.5 rounded self-start" :class="{'bg-red-200 text-red-800': issue.severity === 'high', 'bg-yellow-200 text-yellow-800': issue.severity === 'medium', 'bg-blue-200 text-blue-800': issue.severity === 'low'}">{{ issue.severity }}</span>
+                                                <span class="font-medium text-sm break-words">{{ issue.description }}</span>
+                                            </div>
+                                            <p v-if="issue.impact" class="text-gray-600 text-sm mt-1 break-words">影响: {{ issue.impact }}</p>
                                         </div>
-                                        <!-- SQL Display -->
-                                        <div v-if="idx.sql && idx.sql.trim()" class="relative group">
-                                            <pre class="bg-gray-900 text-gray-100 p-3 rounded-lg sql-code text-sm mb-2 whitespace-pre-wrap break-all overflow-x-auto">{{ idx.sql }}</pre>
-                                            <button @click="copyToClipboard(idx.sql)" class="absolute top-2 right-2 opacity-0 group-hover:opacity-100 bg-gray-700 hover:bg-gray-600 text-white text-xs px-2 py-1 rounded transition-opacity">
+                                    </div>
+                                </div>
+
+                                <!-- Index Suggestions -->
+                                <div v-if="analysisResult.llm_analysis.index_suggestions?.length" class="mb-4">
+                                    <h4 class="font-medium text-gray-700 mb-2">索引建议</h4>
+                                    <div class="space-y-3">
+                                        <div v-for="(idx, i) in analysisResult.llm_analysis.index_suggestions" :key="i"
+                                             :class="['border rounded-lg p-4 min-w-0', idx.note ? 'bg-yellow-50 border-yellow-200' : 'bg-green-50 border-green-200']">
+                                            <div class="flex items-center justify-between mb-2 flex-wrap gap-2">
+                                                <span class="font-medium" :class="idx.note ? 'text-yellow-900' : 'text-green-900'">{{ idx.table }} 表</span>
+                                                <span v-if="idx.estimate_benefit" class="text-xs px-2 py-1 rounded"
+                                                      :class="idx.note ? 'bg-yellow-200 text-yellow-800' : 'bg-green-200 text-green-800'"
+                                                >{{ idx.estimate_benefit }}</span>
+                                            </div>
+                                            <p class="text-sm mb-2 break-words" :class="idx.note ? 'text-yellow-700' : 'text-green-700'"
+                                            >列: {{ idx.columns?.join(', ') || '-' }}</p>
+                                            <!-- 重复索引提示 -->
+                                            <div v-if="idx.note" class="bg-yellow-100 border border-yellow-300 text-yellow-800 p-2 rounded text-sm mb-2">
+                                                {{ idx.note }}
+                                            </div>
+                                            <!-- SQL Display -->
+                                            <div v-if="idx.sql && idx.sql.trim()" class="relative group">
+                                                <pre class="bg-gray-900 text-gray-100 p-3 rounded-lg sql-code text-sm mb-2 whitespace-pre-wrap break-all overflow-x-auto">{{ idx.sql }}</pre>
+                                                <button @click="copyToClipboard(idx.sql)" class="absolute top-2 right-2 opacity-0 group-hover:opacity-100 bg-gray-700 hover:bg-gray-600 text-white text-xs px-2 py-1 rounded transition-opacity">
+                                                    复制
+                                                </button>
+                                            </div>
+                                            <div v-else-if="!idx.note" class="bg-yellow-100 border border-yellow-300 text-yellow-800 p-2 rounded text-sm mb-2">
+                                                未返回具体的 CREATE INDEX 语句
+                                            </div>
+                                            <p v-if="idx.reason" class="text-sm break-words" :class="idx.note ? 'text-yellow-600' : 'text-green-600'"
+                                            ><strong>原因:</strong> {{ idx.reason }}</p>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- Rewrite Suggestions -->
+                                <div v-if="analysisResult.llm_analysis.rewrite_suggestions?.length" class="mb-4">
+                                    <h4 class="font-medium text-gray-700 mb-2">重写建议</h4>
+                                    <div class="space-y-3">
+                                        <div v-for="(sql, i) in analysisResult.llm_analysis.rewrite_suggestions" :key="i" class="relative group">
+                                            <pre class="bg-gray-900 text-gray-100 p-3 rounded-lg sql-code text-sm whitespace-pre-wrap break-all overflow-x-auto">{{ sql }}</pre>
+                                            <button @click="copyToClipboard(sql)" class="absolute top-2 right-2 opacity-0 group-hover:opacity-100 bg-gray-700 hover:bg-gray-600 text-white text-xs px-2 py-1 rounded transition-opacity">
                                                 复制
                                             </button>
                                         </div>
-                                        <div v-else-if="!idx.note" class="bg-yellow-100 border border-yellow-300 text-yellow-800 p-2 rounded text-sm mb-2">
-                                            ⚠️ 未返回具体的 CREATE INDEX 语句
-                                        </div>
-                                        <p v-if="idx.reason" class="text-sm break-words" :class="idx.note ? 'text-yellow-600' : 'text-green-600'"
-                                        ><strong>原因:</strong> {{ idx.reason }}</p>
                                     </div>
                                 </div>
-                            </div>
 
-                            <!-- Rewrite Suggestions -->
-                            <div v-if="analysisResult.llm_analysis.rewrite_suggestions?.length" class="mb-4">
-                                <h4 class="font-medium text-gray-700 mb-2">重写建议</h4>
-                                <div class="space-y-3">
-                                    <div v-for="(sql, i) in analysisResult.llm_analysis.rewrite_suggestions" :key="i" class="relative group">
-                                        <pre class="bg-gray-900 text-gray-100 p-3 rounded-lg sql-code text-sm whitespace-pre-wrap break-all overflow-x-auto">{{ sql }}</pre>
-                                        <button @click="copyToClipboard(sql)" class="absolute top-2 right-2 opacity-0 group-hover:opacity-100 bg-gray-700 hover:bg-gray-600 text-white text-xs px-2 py-1 rounded transition-opacity">
-                                            复制
-                                        </button>
-                                    </div>
+                                <!-- Optimization Suggestions -->
+                                <div v-if="analysisResult.llm_analysis.optimization_suggestions?.length" class="mb-4">
+                                    <h4 class="font-medium text-gray-700 mb-2">其他优化建议</h4>
+                                    <ol class="list-decimal list-inside space-y-1 text-gray-600">
+                                        <li v-for="(s, i) in analysisResult.llm_analysis.optimization_suggestions" :key="i" class="break-words">{{ s }}</li>
+                                    </ol>
                                 </div>
                             </div>
-
-                            <!-- Optimization Suggestions -->
-                            <div v-if="analysisResult.llm_analysis.optimization_suggestions?.length" class="mb-4">
-                                <h4 class="font-medium text-gray-700 mb-2">其他优化建议</h4>
-                                <ol class="list-decimal list-inside space-y-1 text-gray-600">
-                                    <li v-for="(s, i) in analysisResult.llm_analysis.optimization_suggestions" :key="i" class="break-words">{{ s }}</li>
-                                </ol>
-                            </div>
                         </div>
                     </div>
-                </div>
 
-                <!-- SQL Collection -->
-                <div v-if="activeMenu === 'collection'" class="bg-white rounded-lg shadow-sm p-6">
-                    <!-- Data Source Selector -->
-                    <div class="mb-4 p-3 bg-gray-50 rounded-lg flex items-center gap-4">
-                        <label class="text-sm font-medium text-gray-700">选择数据源:</label>
-                        <select v-model="selectedCollectionSource" @change="onCollectionSourceChange" class="px-3 py-2 border rounded-lg min-w-[200px]">
-                            <option v-for="source in dbSources" :key="source.id" :value="source.id">
-                                {{ source.name }} ({{ source.db_type?.toUpperCase() }})
-                            </option>
-                        </select>
-                        <span v-if="selectedCollectionSource" class="text-sm text-gray-500">
-                            {{ dbSources.find(s => s.id === selectedCollectionSource)?.host }}:{{ dbSources.find(s => s.id === selectedCollectionSource)?.port }}
-                        </span>
-                        <button @click="loadDBSources" class="text-sm text-blue-600 hover:text-blue-800 ml-auto">刷新列表</button>
-                    </div>
-
-                    <div class="flex items-center justify-between mb-4">
-                        <h2 class="text-lg font-semibold">慢 SQL 采集</h2>
-                        <div class="flex items-center gap-4">
-                            <label class="text-sm text-gray-600">
-                                Top N:
-                                <select v-model="collectionTopN" class="ml-1 border rounded px-2 py-1">
-                                    <option :value="10">10</option>
-                                    <option :value="20">20</option>
-                                    <option :value="50">50</option>
-                                </select>
-                            </label>
-                            <label class="text-sm text-gray-600 flex items-center gap-2">
-                                <input type="checkbox" v-model="excludeSystemSQL" class="rounded">
-                                排除系统SQL
-                            </label>
-                            <button
-                                @click="collectSlowSQLs"
-                                :disabled="collecting || !selectedCollectionSource"
-                                class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-300"
-                            >
-                                {{ collecting ? '采集中...' : '采集慢 SQL' }}
-                            </button>
-                        </div>
-                    </div>
-                    <!-- Collection Error -->
-                    <div v-if="collectionError" class="bg-red-50 border border-red-200 rounded-lg p-4 mb-4 text-red-800">
-                        <strong>采集失败:</strong> {{ collectionError }}
-                    </div>
-                    <!-- Empty State with Info -->
-                    <div v-if="collectedSQLs.length === 0 && !collecting && !collectionError" class="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-4 text-blue-800">
-                        <p>点击上方按钮采集慢 SQL。</p>
-                        <p class="text-sm mt-1 text-blue-600">提示：如果返回为空，可能是当前没有超过阈值的慢 SQL。</p>
-                    </div>
-                    <div v-if="collectedSQLs.length" class="overflow-x-auto">
-                        <table class="w-full text-xs">
-                            <thead class="bg-gray-50">
-                                <tr>
-                                    <th class="px-3 py-2 text-left font-medium text-gray-600">Schema</th>
-                                    <th class="px-3 py-2 text-left font-medium text-gray-600">SQL ID</th>
-                                    <th class="px-3 py-2 text-left font-medium text-gray-600 w-1/3">SQL Text</th>
-                                    <th class="px-3 py-2 text-right font-medium text-gray-600">CPU %</th>
-                                    <th class="px-3 py-2 text-right font-medium text-gray-600">Elapsed %</th>
-                                    <th class="px-3 py-2 text-right font-medium text-gray-600">Elapsed (Sec)</th>
-                                    <th class="px-3 py-2 text-right font-medium text-gray-600">Time/Exec (Sec)</th>
-                                    <th class="px-3 py-2 text-right font-medium text-gray-600">Executions</th>
-                                    <th class="px-3 py-2 text-right font-medium text-gray-600">Logical Reads</th>
-                                    <th class="px-3 py-2 text-right font-medium text-gray-600">Physical Reads</th>
-                                    <th class="px-3 py-2 text-center font-medium text-gray-600">操作</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                <tr v-for="sql in collectedSQLs" :key="sql.sql_id" class="border-t hover:bg-gray-50">
-                                    <td class="px-3 py-2 font-mono text-gray-600">{{ sql.schema || 'N/A' }}</td>
-                                    <td class="px-3 py-2 font-mono text-blue-600">{{ sql.sql_id }}</td>
-                                    <td class="px-3 py-2 max-w-xs truncate" :title="sql.sql_text">{{ sql.sql_text }}</td>
-                                    <td class="px-3 py-2 text-right">
-                                        <div class="flex items-center justify-end gap-1">
-                                            <div class="w-16 h-2 bg-gray-200 rounded-full overflow-hidden">
-                                                <div class="h-full bg-blue-500" :style="{ width: (sql.cpu_pct || 0) + '%' }"></div>
-                                            </div>
-                                            <span class="text-gray-700">{{ sql.cpu_pct != null ? sql.cpu_pct.toFixed(1) : '0.0' }}%</span>
-                                        </div>
-                                    </td>
-                                    <td class="px-3 py-2 text-right">
-                                        <div class="flex items-center justify-end gap-1">
-                                            <div class="w-16 h-2 bg-gray-200 rounded-full overflow-hidden">
-                                                <div class="h-full bg-green-500" :style="{ width: (sql.elapsed_pct || 0) + '%' }"></div>
-                                            </div>
-                                            <span class="text-gray-700">{{ sql.elapsed_pct != null ? sql.elapsed_pct.toFixed(1) : '0.0' }}%</span>
-                                        </div>
-                                    </td>
-                                    <td class="px-3 py-2 text-right font-mono">{{ sql.elapsed_sec != null ? sql.elapsed_sec.toFixed(2) : '0.00' }}</td>
-                                    <td class="px-3 py-2 text-right font-mono">{{ sql.elapsed_per_exec_sec != null ? sql.elapsed_per_exec_sec.toFixed(3) : '0.000' }}</td>
-                                    <td class="px-3 py-2 text-right font-mono">{{ sql.execution_stats?.executions?.toLocaleString() || '0' }}</td>
-                                    <td class="px-3 py-2 text-right font-mono">{{ sql.execution_stats?.buffer_gets?.toLocaleString() || '0' }}</td>
-                                    <td class="px-3 py-2 text-right font-mono">{{ sql.execution_stats?.disk_reads?.toLocaleString() || '0' }}</td>
-                                    <td class="px-3 py-2 text-center whitespace-nowrap">
-                                        <button @click="analyzeCollectedSQL(sql)" class="inline-block text-blue-600 hover:text-blue-800 font-medium" style="white-space: nowrap;">分析</button>
-                                    </td>
-                                </tr>
-                            </tbody>
-                        </table>
-                    </div>
-                    <p v-else-if="!collecting" class="text-gray-500 text-center py-8">暂无数据，点击上方按钮采集</p>
-                </div>
-
-                <!-- Rules Configuration -->
-                <div v-if="activeMenu === 'rules'" class="bg-white rounded-lg shadow-sm p-6">
-                    <div class="flex items-center justify-between mb-4">
-                        <h2 class="text-lg font-semibold">规则配置</h2>
-                        <span class="text-gray-500">共 {{ rules.length }} 条规则</span>
-                    </div>
-                    <div v-if="loadingRules" class="text-center py-8 text-gray-500">加载中...</div>
-                    <div v-else class="overflow-x-auto">
-                        <table class="w-full text-sm">
-                            <thead class="bg-gray-50">
-                                <tr>
-                                    <th class="px-4 py-2 text-left">规则ID</th>
-                                    <th class="px-4 py-2 text-left">名称</th>
-                                    <th class="px-4 py-2 text-left">类别</th>
-                                    <th class="px-4 py-2 text-left">严重程度</th>
-                                    <th class="px-4 py-2 text-left">状态</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                <tr v-for="rule in rules" :key="rule.rule_id" class="border-t">
-                                    <td class="px-4 py-2 font-mono">{{ rule.rule_id }}</td>
-                                    <td class="px-4 py-2">{{ rule.name }}</td>
-                                    <td class="px-4 py-2">{{ rule.category }}</td>
-                                    <td class="px-4 py-2">
-                                        <span :class="['px-2 py-1 rounded text-xs', getSeverityClass(rule.severity)]">{{ rule.severity }}</span>
-                                    </td>
-                                    <td class="px-4 py-2">
-                                        <label class="relative inline-flex items-center cursor-pointer">
-                                            <input type="checkbox" v-model="rule.enabled" @change="toggleRule(rule.rule_id, rule.enabled)" class="sr-only peer">
-                                            <div class="w-11 h-6 bg-gray-200 peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
-                                        </label>
-                                    </td>
-                                </tr>
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-
-                <!-- Database Source Management -->
-                <div v-if="activeMenu === 'db_sources'" class="space-y-6">
-                    <div class="bg-white rounded-lg shadow-sm p-6">
-                        <div class="flex items-center justify-between mb-4">
-                            <h2 class="text-lg font-semibold">数据源管理</h2>
-                            <button @click="openDBSourceModal()" class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center gap-2">
-                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path>
-                                </svg>
-                                新增数据源
-                            </button>
-                        </div>
-
-                        <!-- Filter -->
-                        <div class="flex gap-4 mb-4">
-                            <input v-model="dbSourceFilter.name" placeholder="数据源名称" class="px-3 py-2 border rounded-lg">
-                            <input v-model="dbSourceFilter.host" placeholder="IP地址" class="px-3 py-2 border rounded-lg">
-                            <select v-model="dbSourceFilter.db_type" class="px-3 py-2 border rounded-lg">
-                                <option value="">全部类型</option>
-                                <option value="oracle">Oracle</option>
-                                <option value="mysql">MySQL</option>
-                                <option value="postgresql">PostgreSQL</option>
+                    <!-- SQL Collection -->
+                    <div v-if="activeMenu === 'collection'" class="bg-white rounded-lg shadow-sm p-6">
+                        <!-- Data Source Selector -->
+                        <div class="mb-4 p-3 bg-gray-50 rounded-lg flex items-center gap-4">
+                            <label class="text-sm font-medium text-gray-700">选择数据源:</label>
+                            <select v-model="selectedCollectionSource" @change="onCollectionSourceChange" class="px-3 py-2 border rounded-lg min-w-[200px]">
+                                <option v-for="source in dbSources" :key="source.id" :value="source.id">
+                                    {{ source.name }} ({{ source.db_type?.toUpperCase() }})
+                                </option>
                             </select>
-                            <button @click="loadDBSources()" class="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200">查询</button>
+                            <span v-if="selectedCollectionSource" class="text-sm text-gray-500">
+                                {{ dbSources.find(s => s.id === selectedCollectionSource)?.host }}:{{ dbSources.find(s => s.id === selectedCollectionSource)?.port }}
+                            </span>
+                            <button @click="loadDBSources" class="text-sm text-blue-600 hover:text-blue-800 ml-auto">刷新列表</button>
                         </div>
 
-                        <!-- Table -->
-                        <div v-if="loadingDBSources" class="text-center py-8 text-gray-500">加载中...</div>
+                        <div class="flex items-center justify-between mb-4">
+                            <h2 class="text-lg font-semibold">慢 SQL 采集</h2>
+                            <div class="flex items-center gap-4">
+                                <label class="text-sm text-gray-600">
+                                    Top N:
+                                    <select v-model="collectionTopN" class="ml-1 border rounded px-2 py-1">
+                                        <option :value="10">10</option>
+                                        <option :value="20">20</option>
+                                        <option :value="50">50</option>
+                                    </select>
+                                </label>
+                                <label class="text-sm text-gray-600 flex items-center gap-2">
+                                    <input type="checkbox" v-model="excludeSystemSQL" class="rounded">
+                                    排除系统SQL
+                                </label>
+                                <button
+                                    @click="collectSlowSQLs"
+                                    :disabled="collecting || !selectedCollectionSource"
+                                    class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-300"
+                                >
+                                    {{ collecting ? '采集中...' : '采集慢 SQL' }}
+                                </button>
+                            </div>
+                        </div>
+                        <!-- Collection Error -->
+                        <div v-if="collectionError" class="bg-red-50 border border-red-200 rounded-lg p-4 mb-4 text-red-800">
+                            <strong>采集失败:</strong> {{ collectionError }}
+                        </div>
+                        <!-- Empty State with Info -->
+                        <div v-if="collectedSQLs.length === 0 && !collecting && !collectionError" class="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-4 text-blue-800">
+                            <p>点击上方按钮采集慢 SQL。</p>
+                            <p class="text-sm mt-1 text-blue-600">提示：如果返回为空，可能是当前没有超过阈值的慢 SQL。</p>
+                        </div>
+                        <div v-if="collectedSQLs.length" class="overflow-x-auto">
+                            <table class="w-full text-xs">
+                                <thead class="bg-gray-50">
+                                    <tr>
+                                        <th class="px-3 py-2 text-left font-medium text-gray-600">Schema</th>
+                                        <th class="px-3 py-2 text-left font-medium text-gray-600">SQL ID</th>
+                                        <th class="px-3 py-2 text-left font-medium text-gray-600 w-1/3">SQL Text</th>
+                                        <th class="px-3 py-2 text-right font-medium text-gray-600">CPU %</th>
+                                        <th class="px-3 py-2 text-right font-medium text-gray-600">Elapsed %</th>
+                                        <th class="px-3 py-2 text-right font-medium text-gray-600">Elapsed (Sec)</th>
+                                        <th class="px-3 py-2 text-right font-medium text-gray-600">Time/Exec (Sec)</th>
+                                        <th class="px-3 py-2 text-right font-medium text-gray-600">Executions</th>
+                                        <th class="px-3 py-2 text-right font-medium text-gray-600">Logical Reads</th>
+                                        <th class="px-3 py-2 text-right font-medium text-gray-600">Physical Reads</th>
+                                        <th class="px-3 py-2 text-center font-medium text-gray-600">操作</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr v-for="sql in collectedSQLs" :key="sql.sql_id" class="border-t hover:bg-gray-50">
+                                        <td class="px-3 py-2 font-mono text-gray-600">{{ sql.schema || 'N/A' }}</td>
+                                        <td class="px-3 py-2 font-mono text-blue-600">{{ sql.sql_id }}</td>
+                                        <td class="px-3 py-2 max-w-xs truncate" :title="sql.sql_text">{{ sql.sql_text }}</td>
+                                        <td class="px-3 py-2 text-right">
+                                            <div class="flex items-center justify-end gap-1">
+                                                <div class="w-16 h-2 bg-gray-200 rounded-full overflow-hidden">
+                                                    <div class="h-full bg-blue-500" :style="{ width: (sql.cpu_pct || 0) + '%' }"></div>
+                                                </div>
+                                                <span class="text-gray-700">{{ sql.cpu_pct != null ? sql.cpu_pct.toFixed(1) : '0.0' }}%</span>
+                                            </div>
+                                        </td>
+                                        <td class="px-3 py-2 text-right">
+                                            <div class="flex items-center justify-end gap-1">
+                                                <div class="w-16 h-2 bg-gray-200 rounded-full overflow-hidden">
+                                                    <div class="h-full bg-green-500" :style="{ width: (sql.elapsed_pct || 0) + '%' }"></div>
+                                                </div>
+                                                <span class="text-gray-700">{{ sql.elapsed_pct != null ? sql.elapsed_pct.toFixed(1) : '0.0' }}%</span>
+                                            </div>
+                                        </td>
+                                        <td class="px-3 py-2 text-right font-mono">{{ sql.elapsed_sec != null ? sql.elapsed_sec.toFixed(2) : '0.00' }}</td>
+                                        <td class="px-3 py-2 text-right font-mono">{{ sql.elapsed_per_exec_sec != null ? sql.elapsed_per_exec_sec.toFixed(3) : '0.000' }}</td>
+                                        <td class="px-3 py-2 text-right font-mono">{{ sql.execution_stats?.executions?.toLocaleString() || '0' }}</td>
+                                        <td class="px-3 py-2 text-right font-mono">{{ sql.execution_stats?.buffer_gets?.toLocaleString() || '0' }}</td>
+                                        <td class="px-3 py-2 text-right font-mono">{{ sql.execution_stats?.disk_reads?.toLocaleString() || '0' }}</td>
+                                        <td class="px-3 py-2 text-center whitespace-nowrap">
+                                            <button @click="analyzeCollectedSQL(sql)" class="inline-block text-blue-600 hover:text-blue-800 font-medium" style="white-space: nowrap;">分析</button>
+                                        </td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                        <p v-else-if="!collecting" class="text-gray-500 text-center py-8">暂无数据，点击上方按钮采集</p>
+                    </div>
+
+                    <!-- Rules Configuration -->
+                    <div v-if="activeMenu === 'rules'" class="bg-white rounded-lg shadow-sm p-6">
+                        <div class="flex items-center justify-between mb-4">
+                            <h2 class="text-lg font-semibold">规则配置</h2>
+                            <span class="text-gray-500">共 {{ rules.length }} 条规则</span>
+                        </div>
+                        <div v-if="loadingRules" class="text-center py-8 text-gray-500">加载中...</div>
                         <div v-else class="overflow-x-auto">
                             <table class="w-full text-sm">
                                 <thead class="bg-gray-50">
                                     <tr>
+                                        <th class="px-4 py-2 text-left">规则ID</th>
                                         <th class="px-4 py-2 text-left">名称</th>
-                                        <th class="px-4 py-2 text-left">类型</th>
-                                        <th class="px-4 py-2 text-left">主机</th>
-                                        <th class="px-4 py-2 text-left">端口</th>
-                                        <th class="px-4 py-2 text-left">用户名</th>
-                                        <th class="px-4 py-2 text-left">默认</th>
-                                        <th class="px-4 py-2 text-left">操作</th>
+                                        <th class="px-4 py-2 text-left">类别</th>
+                                        <th class="px-4 py-2 text-left">严重程度</th>
+                                        <th class="px-4 py-2 text-left">状态</th>
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    <tr v-for="source in dbSources" :key="source.id" class="border-t">
-                                        <td class="px-4 py-2">{{ source.name }}</td>
+                                    <tr v-for="rule in rules" :key="rule.rule_id" class="border-t">
+                                        <td class="px-4 py-2 font-mono">{{ rule.rule_id }}</td>
+                                        <td class="px-4 py-2">{{ rule.name }}</td>
+                                        <td class="px-4 py-2">{{ rule.category }}</td>
                                         <td class="px-4 py-2">
-                                            <span :class="['px-2 py-1 rounded text-xs', source.db_type === 'oracle' ? 'bg-orange-100 text-orange-700' : source.db_type === 'mysql' ? 'bg-blue-100 text-blue-700' : 'bg-green-100 text-green-700']">{{ source.db_type?.toUpperCase() }}</span>
+                                            <span :class="['px-2 py-1 rounded text-xs', getSeverityClass(rule.severity)]">{{ rule.severity }}</span>
                                         </td>
-                                        <td class="px-4 py-2 font-mono">{{ source.host }}</td>
-                                        <td class="px-4 py-2">{{ source.port }}</td>
-                                        <td class="px-4 py-2">{{ source.username }}</td>
                                         <td class="px-4 py-2">
-                                            <span v-if="source.is_default" class="px-2 py-1 bg-green-100 text-green-700 rounded text-xs">默认</span>
-                                        </td>
-                                        <td class="px-4 py-2 flex gap-2">
-                                            <button @click="testDBSourceConnection(source)" :disabled="testingSource === source.id" class="text-green-600 hover:text-green-800 text-sm">
-                                                {{ testingSource === source.id ? '测试中...' : '测试' }}
-                                            </button>
-                                            <button @click="openDBSourceModal(source)" class="text-blue-600 hover:text-blue-800 text-sm">编辑</button>
-                                            <button @click="deleteDBSource(source)" class="text-red-600 hover:text-red-800 text-sm">删除</button>
+                                            <label class="relative inline-flex items-center cursor-pointer">
+                                                <input type="checkbox" v-model="rule.enabled" @change="toggleRule(rule.rule_id, rule.enabled)" class="sr-only peer">
+                                                <div class="w-11 h-6 bg-gray-200 peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                                            </label>
                                         </td>
                                     </tr>
                                 </tbody>
                             </table>
                         </div>
                     </div>
-                </div>
-            </main>
-        </div>
+
+                    <!-- Database Source Management -->
+                    <div v-if="activeMenu === 'db_sources'" class="space-y-6">
+                        <div class="bg-white rounded-lg shadow-sm p-6">
+                            <div class="flex items-center justify-between mb-4">
+                                <h2 class="text-lg font-semibold">数据源管理</h2>
+                                <button v-if="hasPermission('datasource:manage')" @click="openDBSourceModal()" class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center gap-2">
+                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path>
+                                    </svg>
+                                    新增数据源
+                                </button>
+                            </div>
+
+                            <!-- Filter -->
+                            <div class="flex gap-4 mb-4">
+                                <input v-model="dbSourceFilter.name" placeholder="数据源名称" class="px-3 py-2 border rounded-lg">
+                                <input v-model="dbSourceFilter.host" placeholder="IP地址" class="px-3 py-2 border rounded-lg">
+                                <select v-model="dbSourceFilter.db_type" class="px-3 py-2 border rounded-lg">
+                                    <option value="">全部类型</option>
+                                    <option value="oracle">Oracle</option>
+                                    <option value="mysql">MySQL</option>
+                                    <option value="postgresql">PostgreSQL</option>
+                                </select>
+                                <button @click="loadDBSources()" class="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200">查询</button>
+                            </div>
+
+                            <!-- Table -->
+                            <div v-if="loadingDBSources" class="text-center py-8 text-gray-500">加载中...</div>
+                            <div v-else class="overflow-x-auto">
+                                <table class="w-full text-sm">
+                                    <thead class="bg-gray-50">
+                                        <tr>
+                                            <th class="px-4 py-2 text-left">名称</th>
+                                            <th class="px-4 py-2 text-left">类型</th>
+                                            <th class="px-4 py-2 text-left">主机</th>
+                                            <th class="px-4 py-2 text-left">端口</th>
+                                            <th class="px-4 py-2 text-left">用户名</th>
+                                            <th class="px-4 py-2 text-left">默认</th>
+                                            <th class="px-4 py-2 text-left">操作</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <tr v-for="source in dbSources" :key="source.id" class="border-t">
+                                            <td class="px-4 py-2">{{ source.name }}</td>
+                                            <td class="px-4 py-2">
+                                                <span :class="['px-2 py-1 rounded text-xs', source.db_type === 'oracle' ? 'bg-orange-100 text-orange-700' : source.db_type === 'mysql' ? 'bg-blue-100 text-blue-700' : 'bg-green-100 text-green-700']">{{ source.db_type?.toUpperCase() }}</span>
+                                            </td>
+                                            <td class="px-4 py-2 font-mono">{{ source.host }}</td>
+                                            <td class="px-4 py-2">{{ source.port }}</td>
+                                            <td class="px-4 py-2">{{ source.username }}</td>
+                                            <td class="px-4 py-2">
+                                                <span v-if="source.is_default" class="px-2 py-1 bg-green-100 text-green-700 rounded text-xs">默认</span>
+                                            </td>
+                                            <td class="px-4 py-2 flex gap-2">
+                                                <button @click="testDBSourceConnection(source)" :disabled="testingSource === source.id" class="text-green-600 hover:text-green-800 text-sm">
+                                                    {{ testingSource === source.id ? '测试中...' : '测试' }}
+                                                </button>
+                                                <button v-if="hasPermission('datasource:manage')" @click="openDBSourceModal(source)" class="text-blue-600 hover:text-blue-800 text-sm">编辑</button>
+                                                <button v-if="hasPermission('datasource:manage')" @click="deleteDBSource(source)" class="text-red-600 hover:text-red-800 text-sm">删除</button>
+                                            </td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Analysis History -->
+                    <div v-if="activeMenu === 'history'" class="space-y-6">
+                        <div class="bg-white rounded-lg shadow-sm p-6">
+                            <div class="flex items-center justify-between mb-4">
+                                <h2 class="text-lg font-semibold">分析历史</h2>
+                                <div class="flex items-center gap-3">
+                                    <input v-model="historyFilter.keyword" @keyup.enter="loadHistory" placeholder="搜索 SQL 关键词" class="px-3 py-2 border rounded-lg text-sm">
+                                    <button @click="loadHistory" class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm">搜索</button>
+                                </div>
+                            </div>
+                            <div v-if="loadingHistory" class="text-center py-8 text-gray-500">加载中...</div>
+                            <div v-else-if="historyItems.length === 0" class="text-center py-12 text-gray-500">
+                                <svg class="w-12 h-12 mx-auto text-gray-300 mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                                <p>暂无分析历史</p>
+                            </div>
+                            <div v-else class="overflow-x-auto">
+                                <table class="w-full text-sm">
+                                    <thead class="bg-gray-50">
+                                        <tr>
+                                            <th class="px-4 py-2 text-left">时间</th>
+                                            <th class="px-4 py-2 text-left">数据源</th>
+                                            <th class="px-4 py-2 text-left">Schema</th>
+                                            <th class="px-4 py-2 text-left w-1/3">SQL</th>
+                                            <th class="px-4 py-2 text-left">SQL ID</th>
+                                            <th class="px-4 py-2 text-left">风险等级</th>
+                                            <th class="px-4 py-2 text-left">操作</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <tr v-for="item in historyItems" :key="item.id" class="border-t hover:bg-gray-50">
+                                            <td class="px-4 py-2 text-gray-500 whitespace-nowrap">{{ formatDate(item.created_at) }}</td>
+                                            <td class="px-4 py-2">{{ item.db_source_name || '-' }}</td>
+                                            <td class="px-4 py-2">{{ item.schema || '-' }}</td>
+                                            <td class="px-4 py-2 max-w-xs truncate" :title="item.sql_text">{{ item.sql_text }}</td>
+                                            <td class="px-4 py-2 font-mono text-xs">{{ item.sql_id || '-' }}</td>
+                                            <td class="px-4 py-2">
+                                                <span :class="['px-2 py-1 rounded text-xs font-medium', getRiskClass(item.risk_level)]">{{ item.risk_level || '未知' }}</span>
+                                            </td>
+                                            <td class="px-4 py-2 flex gap-2">
+                                                <button @click="viewHistoryDetail(item.id)" class="text-blue-600 hover:text-blue-800 text-sm">查看</button>
+                                                <button @click="deleteHistory(item.id)" class="text-red-600 hover:text-red-800 text-sm">删除</button>
+                                            </td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                                <!-- Pagination -->
+                                <div class="flex items-center justify-between mt-4">
+                                    <span class="text-sm text-gray-500">共 {{ historyTotal }} 条</span>
+                                    <div class="flex items-center gap-2">
+                                        <button @click="historyPage--" :disabled="historyPage <= 1" class="px-3 py-1 border rounded text-sm disabled:opacity-50">上一页</button>
+                                        <span class="text-sm text-gray-600">第 {{ historyPage }} 页</span>
+                                        <button @click="historyPage++" :disabled="historyPage * historyPageSize >= historyTotal" class="px-3 py-1 border rounded text-sm disabled:opacity-50">下一页</button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- History Detail Modal -->
+                    <div v-if="showHistoryDetailModal" class="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+                        <div class="bg-white rounded-lg shadow-lg p-6 w-full max-w-4xl max-h-[90vh] overflow-y-auto mx-4">
+                            <div class="flex items-center justify-between mb-4">
+                                <h3 class="text-lg font-semibold">分析详情</h3>
+                                <button @click="showHistoryDetailModal = false" class="text-gray-400 hover:text-gray-600">
+                                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                                </button>
+                            </div>
+                            <div v-if="historyDetail" class="space-y-4">
+                                <div class="grid grid-cols-2 gap-4 text-sm">
+                                    <div><span class="text-gray-500">数据源:</span> {{ historyDetail.db_source_name || '-' }}</div>
+                                    <div><span class="text-gray-500">Schema:</span> {{ historyDetail.schema || '-' }}</div>
+                                    <div><span class="text-gray-500">SQL ID:</span> {{ historyDetail.sql_id || '-' }}</div>
+                                    <div><span class="text-gray-500">输入模式:</span> {{ historyDetail.input_mode === 'sql_id' ? 'SQL_ID' : 'SQL文本' }}</div>
+                                    <div><span class="text-gray-500">风险等级:</span> <span :class="['px-2 py-0.5 rounded text-xs font-medium', getRiskClass(historyDetail.risk_level)]">{{ historyDetail.risk_level || '未知' }}</span></div>
+                                    <div><span class="text-gray-500">分析时间:</span> {{ formatDate(historyDetail.created_at) }}</div>
+                                </div>
+                                <div>
+                                    <h4 class="text-sm font-medium text-gray-700 mb-2">SQL 语句</h4>
+                                    <pre class="bg-gray-900 text-gray-100 p-4 rounded-lg sql-code text-sm whitespace-pre-wrap break-all">{{ historyDetail.sql_text }}</pre>
+                                </div>
+                                <div v-if="historyDetail.result_json">
+                                    <h4 class="text-sm font-medium text-gray-700 mb-2">分析结果</h4>
+                                    <pre class="bg-gray-50 border p-4 rounded-lg text-sm whitespace-pre-wrap break-all">{{ formatJson(historyDetail.result_json) }}</pre>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- User Profile -->
+                    <div v-if="activeMenu === 'profile'" class="space-y-6">
+                        <div class="bg-white rounded-lg shadow-sm p-6">
+                            <h2 class="text-lg font-semibold mb-4">个人中心</h2>
+                            <div class="grid grid-cols-2 gap-4 max-w-lg">
+                                <div class="text-sm"><span class="text-gray-500">用户名:</span> {{ currentUser?.username }}</div>
+                                <div class="text-sm"><span class="text-gray-500">姓名:</span> {{ currentUser?.real_name || '-' }}</div>
+                                <div class="text-sm"><span class="text-gray-500">邮箱:</span> {{ currentUser?.email || '-' }}</div>
+                                <div class="text-sm"><span class="text-gray-500">角色:</span> {{ currentUser?.roles?.join(', ') || '无' }}</div>
+                            </div>
+                        </div>
+                        <div class="bg-white rounded-lg shadow-sm p-6">
+                            <h3 class="text-lg font-semibold mb-4">修改密码</h3>
+                            <div class="space-y-4 max-w-md">
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-1">旧密码</label>
+                                    <input v-model="passwordForm.old_password" type="password" class="w-full px-3 py-2 border rounded-lg">
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-1">新密码</label>
+                                    <input v-model="passwordForm.new_password" type="password" class="w-full px-3 py-2 border rounded-lg">
+                                </div>
+                                <button @click="changePassword" :disabled="changingPassword" class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-300">
+                                    {{ changingPassword ? '保存中...' : '保存' }}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- User Management -->
+                    <div v-if="activeMenu === 'users'" class="space-y-6">
+                        <div class="bg-white rounded-lg shadow-sm p-6">
+                            <div class="flex items-center justify-between mb-4">
+                                <h2 class="text-lg font-semibold">用户管理</h2>
+                                <button @click="openUserModal()" class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center gap-2">
+                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path></svg>
+                                    新增用户
+                                </button>
+                            </div>
+                            <div v-if="loadingUsers" class="text-center py-8 text-gray-500">加载中...</div>
+                            <div v-else class="overflow-x-auto">
+                                <table class="w-full text-sm">
+                                    <thead class="bg-gray-50">
+                                        <tr>
+                                            <th class="px-4 py-2 text-left">ID</th>
+                                            <th class="px-4 py-2 text-left">用户名</th>
+                                            <th class="px-4 py-2 text-left">姓名</th>
+                                            <th class="px-4 py-2 text-left">邮箱</th>
+                                            <th class="px-4 py-2 text-left">角色</th>
+                                            <th class="px-4 py-2 text-left">状态</th>
+                                            <th class="px-4 py-2 text-left">操作</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <tr v-for="user in users" :key="user.id" class="border-t">
+                                            <td class="px-4 py-2">{{ user.id }}</td>
+                                            <td class="px-4 py-2 font-medium">{{ user.username }}</td>
+                                            <td class="px-4 py-2">{{ user.real_name || '-' }}</td>
+                                            <td class="px-4 py-2">{{ user.email || '-' }}</td>
+                                            <td class="px-4 py-2">
+                                                <span v-for="role in user.roles" :key="role" class="px-2 py-0.5 bg-blue-100 text-blue-700 rounded text-xs mr-1">{{ role }}</span>
+                                            </td>
+                                            <td class="px-4 py-2">
+                                                <span :class="['px-2 py-0.5 rounded text-xs', user.is_active ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500']">{{ user.is_active ? '启用' : '禁用' }}</span>
+                                            </td>
+                                            <td class="px-4 py-2 flex gap-2">
+                                                <button @click="openUserModal(user)" class="text-blue-600 hover:text-blue-800 text-sm">编辑</button>
+                                                <button @click="resetUserPassword(user)" class="text-orange-600 hover:text-orange-800 text-sm">重置密码</button>
+                                                <button v-if="user.id !== currentUser.id" @click="disableUser(user)" class="text-red-600 hover:text-red-800 text-sm">禁用</button>
+                                            </td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- User Modal -->
+                    <div v-if="showUserModal" class="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+                        <div class="bg-white rounded-lg shadow-lg p-6 w-full max-w-lg mx-4">
+                            <h3 class="text-lg font-semibold mb-4">{{ editingUser ? '编辑用户' : '新增用户' }}</h3>
+                            <div class="space-y-4">
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-1">用户名 *</label>
+                                    <input v-model="userForm.username" :disabled="editingUser" class="w-full px-3 py-2 border rounded-lg">
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-1">姓名</label>
+                                    <input v-model="userForm.real_name" class="w-full px-3 py-2 border rounded-lg">
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-1">邮箱</label>
+                                    <input v-model="userForm.email" class="w-full px-3 py-2 border rounded-lg">
+                                </div>
+                                <div v-if="!editingUser">
+                                    <label class="block text-sm font-medium text-gray-700 mb-1">密码 *</label>
+                                    <input v-model="userForm.password" type="password" class="w-full px-3 py-2 border rounded-lg">
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-1">角色</label>
+                                    <div class="flex flex-wrap gap-2">
+                                        <label v-for="role in allRoles" :key="role.id" class="flex items-center gap-1 px-3 py-1.5 border rounded-lg cursor-pointer hover:bg-gray-50">
+                                            <input type="checkbox" :value="role.id" v-model="userForm.role_ids" class="rounded">
+                                            <span class="text-sm">{{ role.name }}</span>
+                                        </label>
+                                    </div>
+                                </div>
+                                <div>
+                                    <label class="flex items-center gap-2 cursor-pointer">
+                                        <input type="checkbox" v-model="userForm.is_active" class="w-4 h-4 text-blue-600 rounded">
+                                        <span class="text-sm text-gray-600">启用账号</span>
+                                    </label>
+                                </div>
+                            </div>
+                            <div class="flex justify-end gap-3 mt-6">
+                                <button @click="showUserModal = false" class="px-4 py-2 text-gray-600 hover:text-gray-800">取消</button>
+                                <button @click="saveUser" :disabled="savingUser" class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-300">
+                                    {{ savingUser ? '保存中...' : '保存' }}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Role Management -->
+                    <div v-if="activeMenu === 'roles'" class="h-[calc(100vh-64px)] flex">
+                        <!-- Left Sidebar: Role List -->
+                        <div class="w-72 bg-white border-r flex flex-col shrink-0">
+                            <div class="p-4 border-b">
+                                <h2 class="text-base font-semibold text-gray-800">角色列表</h2>
+                            </div>
+                            <div class="p-3">
+                                <div class="relative">
+                                    <input v-model="roleSearchQuery" type="text" placeholder="搜索角色名称..." class="w-full pl-9 pr-3 py-2 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                    <svg class="w-4 h-4 text-gray-400 absolute left-3 top-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
+                                </div>
+                            </div>
+                            <div class="flex-1 overflow-y-auto px-3 pb-3 space-y-2">
+                                <div v-if="loadingRoles" class="text-center py-8 text-gray-500 text-sm">加载中...</div>
+                                <template v-else>
+                                    <div v-for="role in filteredRoles" :key="role.id"
+                                         @click="selectRole(role)"
+                                         :class="['p-3 rounded-lg cursor-pointer transition-colors border', selectedRole?.id === role.id ? 'bg-blue-50 border-blue-200' : 'hover:bg-gray-50 border-transparent']">
+                                        <div class="flex items-center gap-3">
+                                            <div :class="['w-10 h-10 rounded-full flex items-center justify-center text-white font-bold text-sm shrink-0', getRoleAvatarClass(role.name)]">
+                                                {{ role.name.charAt(0).toUpperCase() }}
+                                            </div>
+                                            <div class="flex-1 min-w-0">
+                                                <div class="flex items-center gap-2">
+                                                    <span class="font-medium text-sm text-gray-900 truncate">{{ role.name }}</span>
+                                                    <span :class="['text-xs px-1.5 py-0.5 rounded shrink-0', getRoleTagClass(role.name)]">{{ getRoleTag(role.name) }}</span>
+                                                </div>
+                                                <p class="text-xs text-gray-500 truncate mt-0.5">{{ role.description || '无描述' }}</p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div v-if="filteredRoles.length === 0" class="text-center py-8 text-gray-400 text-sm">未找到匹配角色</div>
+                                </template>
+                            </div>
+                            <div class="p-3 border-t">
+                                <button @click="openRoleModal()" class="w-full py-2 text-sm text-blue-600 bg-blue-50 rounded-lg hover:bg-blue-100 flex items-center justify-center gap-1">
+                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path></svg>
+                                    创建新角色
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- Right Panel: Role Detail -->
+                        <div class="flex-1 bg-gray-50 overflow-y-auto">
+                            <div v-if="!selectedRole" class="flex items-center justify-center h-full text-gray-400">
+                                请从左侧选择一个角色
+                            </div>
+                            <div v-else class="p-6 space-y-6 max-w-5xl">
+                                <!-- Role Header -->
+                                <div class="bg-white rounded-lg shadow-sm p-6">
+                                    <div class="flex items-start justify-between">
+                                        <div class="flex items-center gap-4">
+                                            <div :class="['w-14 h-14 rounded-xl flex items-center justify-center text-white font-bold text-xl shrink-0', getRoleAvatarClass(selectedRole.name)]">
+                                                {{ selectedRole.name.charAt(0).toUpperCase() }}
+                                            </div>
+                                            <div>
+                                                <div class="flex items-center gap-2">
+                                                    <h2 class="text-xl font-semibold text-gray-900">{{ selectedRole.name }}</h2>
+                                                    <span :class="['text-xs px-2 py-0.5 rounded', getRoleTagClass(selectedRole.name)]">{{ getRoleTag(selectedRole.name) }}</span>
+                                                </div>
+                                                <p class="text-sm text-gray-500 mt-1">{{ selectedRole.description || '暂无描述' }}</p>
+                                            </div>
+                                        </div>
+                                        <div class="flex items-center gap-2">
+                                            <button @click="openRolePermissionModal(selectedRole)" class="px-3 py-1.5 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center gap-1">
+                                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"></path></svg>
+                                                配置权限
+                                            </button>
+                                            <button @click="openRoleModal(selectedRole)" class="px-3 py-1.5 text-sm border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 flex items-center gap-1">
+                                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path></svg>
+                                                编辑
+                                            </button>
+                                            <button @click="deleteRole(selectedRole)" class="px-3 py-1.5 text-sm border border-red-200 text-red-600 rounded-lg hover:bg-red-50 flex items-center gap-1">
+                                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
+                                                删除
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- Permission Details -->
+                                <div class="bg-white rounded-lg shadow-sm p-6">
+                                    <h3 class="text-base font-semibold text-gray-800 mb-4">权限详情</h3>
+                                    <div v-if="!selectedRole.permissions || selectedRole.permissions.length === 0" class="text-sm text-gray-400">暂无权限</div>
+                                    <div v-else class="space-y-4">
+                                        <div v-for="(group, idx) in groupedPermissions" :key="idx" class="flex items-start gap-4">
+                                            <div class="w-28 shrink-0 flex items-center gap-2 text-sm text-gray-600">
+                                                <svg class="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" :d="group.icon"></path>
+                                                </svg>
+                                                {{ group.label }}
+                                            </div>
+                                            <div class="flex flex-wrap gap-2">
+                                                <span v-for="perm in group.perms" :key="perm" class="px-2 py-1 bg-blue-50 text-blue-700 rounded text-xs font-mono border border-blue-100">{{ perm }}</span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- Datasource Permissions -->
+                                <div class="bg-white rounded-lg shadow-sm p-6">
+                                    <div class="flex items-center justify-between mb-4">
+                                        <h3 class="text-base font-semibold text-gray-800">数据库权限分配</h3>
+                                        <div class="flex items-center gap-2">
+                                            <div v-if="showDsAssignForm" class="flex items-center gap-2">
+                                                <select v-model="dsAssignSourceId" class="px-3 py-1.5 border rounded-lg text-sm">
+                                                    <option value="">选择数据源</option>
+                                                    <option v-for="source in availableDbSourcesForRole" :key="source.id" :value="source.id">{{ source.name }}</option>
+                                                </select>
+                                                <button @click="assignDsToSelectedRole" :disabled="!dsAssignSourceId" class="px-3 py-1.5 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-300">分配</button>
+                                                <button @click="showDsAssignForm = false; dsAssignSourceId = ''" class="px-3 py-1.5 text-sm text-gray-600 hover:text-gray-800">取消</button>
+                                            </div>
+                                            <button v-else @click="showDsAssignForm = true" class="px-3 py-1.5 text-sm bg-blue-50 text-blue-600 rounded-lg hover:bg-blue-100">权限管理</button>
+                                            <button @click="showAllDsPermModal = true" class="px-3 py-1.5 text-sm border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50">查看分配记录</button>
+                                        </div>
+                                    </div>
+                                    <div v-if="loadingRoleDsPermissions" class="text-center py-4 text-gray-500 text-sm">加载中...</div>
+                                    <div v-else class="overflow-x-auto">
+                                        <table class="w-full text-sm">
+                                            <thead class="bg-gray-50 text-gray-600">
+                                                <tr>
+                                                    <th class="px-4 py-3 text-left font-medium">数据源名称</th>
+                                                    <th class="px-4 py-3 text-left font-medium">描述</th>
+                                                    <th class="px-4 py-3 text-left font-medium">操作</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                <tr v-for="(dp, i) in paginatedRoleDsPermissions" :key="i" class="border-t hover:bg-gray-50">
+                                                    <td class="px-4 py-3 font-medium text-gray-900">{{ dp.db_source_name || dp.db_source_id }}</td>
+                                                    <td class="px-4 py-3 text-gray-500">{{ dp.description || '-' }}</td>
+                                                    <td class="px-4 py-3">
+                                                        <button @click="revokeDatasourcePermission(dp.role_id, dp.db_source_id)" class="text-red-600 hover:text-red-800 text-sm px-2 py-1 rounded hover:bg-red-50">撤销</button>
+                                                    </td>
+                                                </tr>
+                                                <tr v-if="roleDsPermissions.length === 0">
+                                                    <td colspan="3" class="px-4 py-8 text-center text-gray-400">暂无数据库权限分配</td>
+                                                </tr>
+                                            </tbody>
+                                        </table>
+                                        <div v-if="roleDsPermissions.length > roleDsPageSize" class="flex items-center justify-end gap-2 mt-4 text-sm">
+                                            <span class="text-gray-500">共 {{ roleDsPermissions.length }} 条</span>
+                                            <button @click="roleDsPage = Math.max(1, roleDsPage - 1)" :disabled="roleDsPage <= 1" class="px-2 py-1 border rounded hover:bg-gray-50 disabled:opacity-30">&lt;</button>
+                                            <span class="px-3 py-1 bg-blue-600 text-white rounded">{{ roleDsPage }}</span>
+                                            <button @click="roleDsPage = Math.min(roleDsTotalPages, roleDsPage + 1)" :disabled="roleDsPage >= roleDsTotalPages" class="px-2 py-1 border rounded hover:bg-gray-50 disabled:opacity-30">&gt;</button>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- All Datasource Permissions Modal -->
+                        <div v-if="showAllDsPermModal" class="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+                            <div class="bg-white rounded-lg shadow-lg p-6 w-full max-w-3xl mx-4 max-h-[80vh] flex flex-col">
+                                <div class="flex items-center justify-between mb-4">
+                                    <h3 class="text-lg font-semibold">数据源权限分配记录</h3>
+                                    <button @click="showAllDsPermModal = false" class="text-gray-400 hover:text-gray-600">
+                                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                                    </button>
+                                </div>
+                                <div class="flex gap-4 mb-4">
+                                    <select v-model="dsPermRoleId" class="px-3 py-2 border rounded-lg text-sm">
+                                        <option value="">选择角色</option>
+                                        <option v-for="role in rolesList" :key="role.id" :value="role.id">{{ role.name }}</option>
+                                    </select>
+                                    <select v-model="dsPermSourceId" class="px-3 py-2 border rounded-lg text-sm">
+                                        <option value="">选择数据源</option>
+                                        <option v-for="source in dbSources" :key="source.id" :value="source.id">{{ source.name }}</option>
+                                    </select>
+                                    <button @click="assignDatasourcePermission" :disabled="!dsPermRoleId || !dsPermSourceId" class="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:bg-gray-300 text-sm">分配</button>
+                                </div>
+                                <div class="flex-1 overflow-y-auto">
+                                    <table class="w-full text-sm">
+                                        <thead class="bg-gray-50">
+                                            <tr>
+                                                <th class="px-4 py-2 text-left">角色</th>
+                                                <th class="px-4 py-2 text-left">数据源</th>
+                                                <th class="px-4 py-2 text-left">操作</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            <tr v-for="(dp, i) in datasourcePermissions" :key="i" class="border-t">
+                                                <td class="px-4 py-2">{{ dp.role_name }}</td>
+                                                <td class="px-4 py-2">{{ dp.db_source_name || dp.db_source_id }}</td>
+                                                <td class="px-4 py-2">
+                                                    <button @click="revokeDatasourcePermission(dp.role_id, dp.db_source_id)" class="text-red-600 hover:text-red-800 text-sm">撤销</button>
+                                                </td>
+                                            </tr>
+                                            <tr v-if="datasourcePermissions.length === 0">
+                                                <td colspan="3" class="px-4 py-4 text-center text-gray-500">暂无数据源权限分配</td>
+                                            </tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Role Permission Modal -->
+                    <div v-if="showRolePermissionModal" class="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+                        <div class="bg-white rounded-lg shadow-lg p-6 w-full max-w-lg mx-4">
+                            <h3 class="text-lg font-semibold mb-2">配置权限: {{ editingRole?.name }}</h3>
+                            <div v-if="loadingRolePermissions" class="text-center py-8 text-gray-500">加载中...</div>
+                            <div v-else class="space-y-2 max-h-[60vh] overflow-y-auto">
+                                <div v-for="perm in allPermissions" :key="perm.id" class="flex items-center gap-3 p-2 rounded hover:bg-gray-50">
+                                    <input type="checkbox" :checked="perm.granted" @change="togglePermission(perm)" class="w-4 h-4 text-blue-600 rounded">
+                                    <div class="flex-1">
+                                        <div class="text-sm font-medium">{{ perm.name }} <span class="text-xs text-gray-400 font-mono">({{ perm.code }})</span></div>
+                                        <div class="text-xs text-gray-500">{{ perm.description }}</div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="flex justify-end gap-3 mt-6">
+                                <button @click="showRolePermissionModal = false" class="px-4 py-2 text-gray-600 hover:text-gray-800">取消</button>
+                                <button @click="saveRolePermissions" :disabled="savingRolePermissions" class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-300">
+                                    {{ savingRolePermissions ? '保存中...' : '保存' }}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Role Modal (Create/Edit) -->
+                    <div v-if="showRoleModal" class="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+                        <div class="bg-white rounded-lg shadow-lg p-6 w-full max-w-md mx-4">
+                            <h3 class="text-lg font-semibold mb-4">{{ editingRole ? '编辑角色' : '创建角色' }}</h3>
+                            <div class="space-y-4">
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-1">角色名称 *</label>
+                                    <input v-model="roleForm.name" class="w-full px-3 py-2 border rounded-lg" placeholder="如：project_a_dev">
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-1">描述</label>
+                                    <input v-model="roleForm.description" class="w-full px-3 py-2 border rounded-lg" placeholder="如：项目组A开发人员">
+                                </div>
+                            </div>
+                            <div class="flex justify-end gap-3 mt-6">
+                                <button @click="showRoleModal = false" class="px-4 py-2 text-gray-600 hover:text-gray-800">取消</button>
+                                <button @click="saveRole" :disabled="savingRole || !roleForm.name.trim()" class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-300">
+                                    {{ savingRole ? '保存中...' : '保存' }}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </main>
+            </div>
+        </template>
 
         <!-- DB Source Modal -->
         <div v-if="showDBSourceModal" class="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
@@ -704,11 +1242,20 @@
     </div>
 
     <script>
-        const { createApp, ref, onMounted } = Vue;
+        const { createApp, ref, onMounted, computed, watch } = Vue;
 
         createApp({
             setup() {
-                // State
+                // ========== Auth State ==========
+                const isLoggedIn = ref(false);
+                const currentUser = ref(null);
+                const accessToken = ref(localStorage.getItem('access_token') || '');
+                const showUserMenu = ref(false);
+                const loginForm = ref({ username: '', password: '' });
+                const loginError = ref('');
+                const loggingIn = ref(false);
+
+                // ========== App State ==========
                 const sidebarOpen = ref(false);
                 const activeMenu = ref('analyze');
                 const analyzeMode = ref('text');
@@ -764,19 +1311,267 @@
                 const toasts = ref([]);
                 const fileInput = ref(null);
 
-                // Menu
+                // History
+                const historyItems = ref([]);
+                const historyTotal = ref(0);
+                const historyPage = ref(1);
+                const historyPageSize = ref(20);
+                const loadingHistory = ref(false);
+                const historyFilter = ref({ keyword: '' });
+                const showHistoryDetailModal = ref(false);
+                const historyDetail = ref(null);
+
+                // Profile
+                const passwordForm = ref({ old_password: '', new_password: '' });
+                const changingPassword = ref(false);
+
+                // Users
+                const users = ref([]);
+                const loadingUsers = ref(false);
+                const showUserModal = ref(false);
+                const editingUser = ref(null);
+                const userForm = ref({ username: '', real_name: '', email: '', password: '', role_ids: [], is_active: true });
+                const savingUser = ref(false);
+                const allRoles = ref([]);
+
+                // Roles
+                const rolesList = ref([]);
+                const loadingRoles = ref(false);
+                const showRolePermissionModal = ref(false);
+                const editingRole = ref(null);
+                const allPermissions = ref([]);
+                const savingRolePermissions = ref(false);
+                const loadingRolePermissions = ref(false);
+                const showRoleModal = ref(false);
+                const roleForm = ref({ name: '', description: '' });
+                const savingRole = ref(false);
+
+                // Datasource Permissions
+                const datasourcePermissions = ref([]);
+                const dsPermRoleId = ref('');
+                const dsPermSourceId = ref('');
+
+                // Role Page State
+                const selectedRole = ref(null);
+                const roleSearchQuery = ref('');
+                const roleDsPermissions = ref([]);
+                const loadingRoleDsPermissions = ref(false);
+                const roleDsPage = ref(1);
+                const roleDsPageSize = ref(5);
+                const showDsAssignForm = ref(false);
+                const dsAssignSourceId = ref('');
+                const showAllDsPermModal = ref(false);
+
+                // ========== Menu ==========
                 const menuItems = [
-                    { key: 'analyze', label: 'SQL 分析', icon: 'M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z' },
-                    { key: 'collection', label: 'SQL 采集', icon: 'M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4' },
-                    { key: 'db_sources', label: '数据源管理', icon: 'M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4' },
-                    { key: 'rules', label: '规则配置', icon: 'M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4' }
+                    { key: 'analyze', label: 'SQL 分析', icon: 'M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z', permission: 'analysis:execute' },
+                    { key: 'collection', label: 'SQL 采集', icon: 'M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4', permission: 'datasource:use' },
+                    { key: 'db_sources', label: '数据源管理', icon: 'M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4', permission: 'datasource:use' },
+                    { key: 'rules', label: '规则配置', icon: 'M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4', permission: 'analysis:execute' }
                 ];
+
+                const visibleMenuItems = computed(() => {
+                    return menuItems.filter(item => hasPermission(item.permission));
+                });
+
+                // Role page computed
+                const filteredRoles = computed(() => {
+                    if (!roleSearchQuery.value) return rolesList.value;
+                    const q = roleSearchQuery.value.toLowerCase();
+                    return rolesList.value.filter(r =>
+                        r.name.toLowerCase().includes(q) ||
+                        (r.description || '').toLowerCase().includes(q)
+                    );
+                });
+
+                const groupedPermissions = computed(() => {
+                    if (!selectedRole.value || !selectedRole.value.permissions) return [];
+                    const permMap = {
+                        'user': { label: '用户管理', icon: 'M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z' },
+                        'role': { label: '角色管理', icon: 'M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z' },
+                        'datasource': { label: '数据源管理', icon: 'M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4' },
+                        'analysis': { label: 'SQL分析', icon: 'M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4' },
+                        'sqlanalyze': { label: 'SQL分析', icon: 'M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4' },
+                        'system': { label: '系统管理', icon: 'M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z M15 12a3 3 0 11-6 0 3 3 0 016 0z' }
+                    };
+                    const groups = {};
+                    for (const perm of selectedRole.value.permissions) {
+                        const prefix = perm.split(':')[0];
+                        const info = permMap[prefix] || { label: '其他', icon: 'M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z' };
+                        if (!groups[info.label]) {
+                            groups[info.label] = { label: info.label, icon: info.icon, perms: [] };
+                        }
+                        groups[info.label].perms.push(perm);
+                    }
+                    return Object.values(groups);
+                });
+
+                const paginatedRoleDsPermissions = computed(() => {
+                    const start = (roleDsPage.value - 1) * roleDsPageSize.value;
+                    return roleDsPermissions.value.slice(start, start + roleDsPageSize.value);
+                });
+
+                const roleDsTotalPages = computed(() => {
+                    return Math.ceil(roleDsPermissions.value.length / roleDsPageSize.value) || 1;
+                });
+
+                const availableDbSourcesForRole = computed(() => {
+                    if (!selectedRole.value) return dbSources.value;
+                    const assignedIds = new Set(roleDsPermissions.value.map(dp => dp.db_source_id));
+                    return dbSources.value.filter(s => !assignedIds.has(s.id));
+                });
 
                 const inputModes = [
                     { key: 'text', label: 'SQL文本' },
                     { key: 'sql_id', label: 'SQL_ID' },
                     { key: 'file', label: '文件上传' }
                 ];
+
+                // ========== Auth Helpers ==========
+                const hasPermission = (code) => {
+                    if (!currentUser.value) return false;
+                    const perms = currentUser.value.permissions || [];
+                    const roles = currentUser.value.roles || [];
+                    return perms.includes(code) || roles.includes('admin');
+                };
+
+                const extractErrorMessage = (err, fallback = '操作失败') => {
+                    if (!err) return fallback;
+                    if (typeof err.detail === 'string') return err.detail;
+                    if (Array.isArray(err.detail) && err.detail.length > 0) {
+                        const first = err.detail[0];
+                        if (typeof first === 'string') return first;
+                        if (first && typeof first.msg === 'string') return first.msg;
+                        if (first && typeof first.message === 'string') return first.message;
+                    }
+                    if (typeof err.message === 'string') return err.message;
+                    if (typeof err === 'string') return err;
+                    return fallback;
+                };
+
+                const apiFetch = async (url, options = {}) => {
+                    const controller = new AbortController();
+                    const timeout = options.timeout || 15000;
+                    const timer = setTimeout(() => controller.abort(), timeout);
+
+                    const opts = {
+                        ...options,
+                        signal: controller.signal,
+                        headers: {
+                            ...(options.headers || {}),
+                            'Authorization': `Bearer ${accessToken.value}`
+                        }
+                    };
+                    delete opts.timeout;
+
+                    // Don't override Content-Type for FormData
+                    if (options.body instanceof FormData) {
+                        delete opts.headers['Content-Type'];
+                    } else if (!opts.headers['Content-Type']) {
+                        opts.headers['Content-Type'] = 'application/json';
+                    }
+
+                    try {
+                        const res = await fetch(url, opts);
+                        clearTimeout(timer);
+                        if (res.status === 401) {
+                            // Token expired, try refresh
+                            const refreshed = await refreshToken();
+                            if (refreshed) {
+                                opts.headers['Authorization'] = `Bearer ${accessToken.value}`;
+                                return fetch(url, { ...opts, signal: undefined });
+                            } else {
+                                doLogout();
+                                throw new Error('登录已过期，请重新登录');
+                            }
+                        }
+                        return res;
+                    } catch (e) {
+                        clearTimeout(timer);
+                        if (e.name === 'AbortError') {
+                            throw new Error('请求超时，请检查网络或后端服务状态');
+                        }
+                        throw e;
+                    }
+                };
+
+                const doLogin = async () => {
+                    if (!loginForm.value.username || !loginForm.value.password) {
+                        loginError.value = '请输入用户名和密码';
+                        return;
+                    }
+                    loggingIn.value = true;
+                    loginError.value = '';
+                    try {
+                        const res = await fetch('/api/auth/login', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify(loginForm.value)
+                        });
+                        const data = await res.json();
+                        if (!res.ok) {
+                            loginError.value = data.detail || '登录失败';
+                            return;
+                        }
+                        accessToken.value = data.access_token;
+                        localStorage.setItem('access_token', data.access_token);
+                        localStorage.setItem('refresh_token', data.refresh_token);
+                        currentUser.value = data.user;
+                        // 获取完整用户信息（含权限）
+                        await fetchUserInfo();
+                        isLoggedIn.value = true;
+                        showToast('登录成功', 'success');
+                        // Load initial data
+                        await loadDBSources();
+                        await initDefaultSource();
+                    } catch (e) {
+                        loginError.value = e.message || '登录失败';
+                    } finally {
+                        loggingIn.value = false;
+                    }
+                };
+
+                const doLogout = () => {
+                    accessToken.value = '';
+                    currentUser.value = null;
+                    isLoggedIn.value = false;
+                    localStorage.removeItem('access_token');
+                    localStorage.removeItem('refresh_token');
+                    activeMenu.value = 'analyze';
+                    showUserMenu.value = false;
+                };
+
+                const refreshToken = async () => {
+                    const rt = localStorage.getItem('refresh_token');
+                    if (!rt) return false;
+                    try {
+                        const res = await fetch('/api/auth/refresh', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ refresh_token: rt })
+                        });
+                        if (!res.ok) return false;
+                        const data = await res.json();
+                        accessToken.value = data.access_token;
+                        localStorage.setItem('access_token', data.access_token);
+                        return true;
+                    } catch (e) {
+                        return false;
+                    }
+                };
+
+                const fetchUserInfo = async () => {
+                    try {
+                        const res = await apiFetch('/api/auth/me');
+                        if (res.ok) {
+                            currentUser.value = await res.json();
+                            return true;
+                        }
+                        return false;
+                    } catch (e) {
+                        return false;
+                    }
+                };
 
                 // Toast helper
                 const showToast = (message, type = 'info') => {
@@ -805,7 +1600,7 @@
                     }
                     loadingSchemas.value = true;
                     try {
-                        const res = await fetch(`/api/db-sources/${selectedAnalyzeSource.value}/schemas`);
+                        const res = await apiFetch(`/api/db-sources/${selectedAnalyzeSource.value}/schemas`);
                         if (res.ok) {
                             const data = await res.json();
                             schemaList.value = data.schemas || [];
@@ -820,7 +1615,7 @@
                         } else {
                             schemaList.value = [];
                             const err = await res.json().catch(() => ({}));
-                            showToast(`获取 Schema 列表失败: ${err.detail || res.statusText}`, 'error');
+                            showToast(`获取 Schema 列表失败: ${extractErrorMessage(err, res.statusText)}`, 'error');
                         }
                     } catch (e) {
                         schemaList.value = [];
@@ -853,9 +1648,9 @@
                     }
                     analyzing.value = true;
                     try {
-                        const res = await fetch('/api/analyze/single', {
+                        const res = await apiFetch('/api/analyze/single', {
                             method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
+                            timeout: 120000,
                             body: JSON.stringify({
                                 db_source_id: selectedAnalyzeSource.value,
                                 schema: selectedSchema.value,
@@ -864,11 +1659,12 @@
                                 use_rules: useRules.value
                             })
                         });
-                        if (!res.ok) throw new Error('分析失败');
+                        if (!res.ok) {
+                            const err = await res.json().catch(() => ({}));
+                            throw new Error(extractErrorMessage(err, '分析失败'));
+                        }
                         const data = await res.json();
-                        console.log('[analyzeSQL] API response:', data);
                         analysisResult.value = data;
-                        console.log('[analyzeSQL] analysisResult set:', analysisResult.value);
                         showToast('分析完成', 'success');
                         // SQL 语法高亮
                         setTimeout(() => {
@@ -894,11 +1690,13 @@
                     }
                     analyzing.value = true;
                     try {
-                        const res = await fetch(`/api/analyze/by-sql-id?sql_id=${encodeURIComponent(sqlId.value)}&use_llm=${useLLM.value}&db_source_id=${selectedAnalyzeSource.value}`, { method: 'POST' });
-                        if (!res.ok) throw new Error('分析失败');
+                        const res = await apiFetch(`/api/analyze/by-sql-id?sql_id=${encodeURIComponent(sqlId.value)}&use_llm=${useLLM.value}&db_source_id=${selectedAnalyzeSource.value}`, { method: 'POST', timeout: 120000 });
+                        if (!res.ok) {
+                            const err = await res.json().catch(() => ({}));
+                            throw new Error(extractErrorMessage(err, '分析失败'));
+                        }
                         analysisResult.value = await res.json();
                         showToast('分析完成', 'success');
-                        // SQL 语法高亮
                         setTimeout(() => {
                             if (typeof hljs !== 'undefined') {
                                 document.querySelectorAll('pre code.language-sql').forEach((block) => {
@@ -918,9 +1716,9 @@
                     collecting.value = true;
                     collectionError.value = '';
                     try {
-                        const res = await fetch('/api/collect/slow-sqls', {
+                        const res = await apiFetch('/api/collect/slow-sqls', {
                             method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
+                            timeout: 120000,
                             body: JSON.stringify({
                                 db_source_id: selectedCollectionSource.value || undefined,
                                 top_n: collectionTopN.value,
@@ -932,7 +1730,7 @@
                         });
                         if (!res.ok) {
                             const err = await res.json().catch(() => ({}));
-                            throw new Error(err.detail || `采集失败: ${res.status}`);
+                            throw new Error(extractErrorMessage(err, `采集失败: ${res.status}`));
                         }
                         collectedSQLs.value = await res.json();
                         if (collectedSQLs.value.length === 0) {
@@ -949,20 +1747,16 @@
                 };
 
                 const onCollectionSourceChange = () => {
-                    // Source changed, could load stats or clear previous results
                     collectedSQLs.value = [];
                 };
 
                 // Analyze collected SQL
                 const analyzeCollectedSQL = async (sql) => {
-                    // Set the analyze source to match collection source
                     selectedAnalyzeSource.value = selectedCollectionSource.value;
                     if (sql.sql_id) {
-                        // 如果有 SQL_ID，通过接口获取完整 SQL
                         try {
-                            const res = await fetch('/api/collect/by-sql-id', {
+                            const res = await apiFetch('/api/collect/by-sql-id', {
                                 method: 'POST',
-                                headers: { 'Content-Type': 'application/json' },
                                 body: JSON.stringify({
                                     db_source_id: selectedCollectionSource.value,
                                     sql_id: sql.sql_id,
@@ -973,7 +1767,6 @@
                                 const data = await res.json();
                                 sqlText.value = data.sql_text;
                             } else {
-                                // 如果获取失败，使用列表中的文本
                                 sqlText.value = sql.sql_text;
                             }
                         } catch (e) {
@@ -984,15 +1777,19 @@
                     }
                     activeMenu.value = 'analyze';
                     analyzeMode.value = 'text';
-                    // 清空之前的结果
                     analysisResult.value = null;
+                    // 加载 schema 列表并尝试设置采集时的 schema
+                    await loadSchemas();
+                    if (sql.schema && schemaList.value.includes(sql.schema)) {
+                        selectedSchema.value = sql.schema;
+                    }
                 };
 
                 // Load rules
                 const loadRules = async () => {
                     loadingRules.value = true;
                     try {
-                        const res = await fetch('/api/analyze/rules');
+                        const res = await apiFetch('/api/analyze/rules');
                         const data = await res.json();
                         rules.value = data.rules;
                     } catch (e) {
@@ -1005,7 +1802,7 @@
                 // Toggle rule
                 const toggleRule = async (ruleId, enabled) => {
                     try {
-                        await fetch(`/api/analyze/rules/${ruleId}/toggle?enabled=${enabled}`, { method: 'POST' });
+                        await apiFetch(`/api/analyze/rules/${ruleId}/toggle?enabled=${enabled}`, { method: 'POST' });
                         showToast(enabled ? '规则已启用' : '规则已禁用', 'success');
                     } catch (e) {
                         showToast('切换失败', 'error');
@@ -1025,7 +1822,7 @@
                     formData.append('file', file);
                     formData.append('db_source_id', selectedAnalyzeSource.value);
                     try {
-                        const res = await fetch('/api/collect/upload-file', { method: 'POST', body: formData });
+                        const res = await apiFetch('/api/collect/upload-file', { method: 'POST', body: formData });
                         if (!res.ok) {
                             const errData = await res.json();
                             throw new Error(errData.detail || '上传失败');
@@ -1047,7 +1844,6 @@
                         await navigator.clipboard.writeText(text);
                         showToast('已复制到剪贴板', 'success');
                     } catch (e) {
-                        // Fallback for older browsers
                         const textarea = document.createElement('textarea');
                         textarea.value = text;
                         textarea.style.position = 'fixed';
@@ -1065,9 +1861,9 @@
                     if (!analysisResult.value) return;
                     exporting.value = true;
                     try {
-                        const res = await fetch('/api/analyze/export', {
+                        const res = await apiFetch('/api/analyze/export', {
                             method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
+                            timeout: 120000,
                             body: JSON.stringify({
                                 db_source_id: selectedAnalyzeSource.value,
                                 schema: selectedSchema.value,
@@ -1080,10 +1876,9 @@
                         });
                         if (!res.ok) {
                             const err = await res.json().catch(() => ({}));
-                            throw new Error(err.detail || '导出失败');
+                            throw new Error(extractErrorMessage(err, '导出失败'));
                         }
 
-                        // 下载文件
                         const blob = await res.blob();
                         const url = window.URL.createObjectURL(blob);
                         const a = document.createElement('a');
@@ -1107,16 +1902,22 @@
 
                 // Menu click handler
                 const handleMenuClick = (key) => {
-                    // 立即切换菜单，提升响应速度
                     activeMenu.value = key;
-                    // 移动端点击菜单后自动关闭侧边栏
                     sidebarOpen.value = false;
-                    // 异步加载数据，不阻塞 UI
                     if (key === 'rules' && rules.value.length === 0) {
                         setTimeout(() => loadRules(), 0);
                     }
                     if (key === 'db_sources') {
                         setTimeout(() => loadDBSources(), 0);
+                    }
+                    if (key === 'history') {
+                        setTimeout(() => loadHistory(), 0);
+                    }
+                    if (key === 'users') {
+                        setTimeout(() => loadUsers(), 0);
+                    }
+                    if (key === 'roles') {
+                        setTimeout(() => loadRolesList(), 0);
                     }
                 };
                 const toggleSidebar = () => {
@@ -1136,18 +1937,19 @@
                     'low': 'bg-green-100 text-green-700'
                 })[severity] || 'bg-gray-100 text-gray-700';
 
-                onMounted(async () => {
-                    // 初始化 highlight.js
-                    if (typeof hljs !== 'undefined') {
-                        hljs.configure({ languages: ['sql'] });
-                    }
-                    checkHealth();
-                    setInterval(checkHealth, 30000);
-                    if (activeMenu.value === 'rules') loadRules();
-                    if (activeMenu.value === 'db_sources') loadDBSources();
-                    // Load DB sources for selectors
-                    await loadDBSources();
-                    // Set default source if available
+                const formatDate = (str) => {
+                    if (!str) return '-';
+                    const d = new Date(str);
+                    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
+                };
+
+                const formatJson = (str) => {
+                    try {
+                        return JSON.stringify(JSON.parse(str), null, 2);
+                    } catch (e) { return str; }
+                };
+
+                const initDefaultSource = async () => {
                     if (dbSources.value.length > 0) {
                         const defaultSource = dbSources.value.find(s => s.is_default);
                         if (defaultSource) {
@@ -1157,8 +1959,36 @@
                             selectedCollectionSource.value = dbSources.value[0].id;
                             selectedAnalyzeSource.value = dbSources.value[0].id;
                         }
-                        // 加载默认数据源的 Schema 列表
-                        await loadSchemas();
+                        try {
+                            await loadSchemas();
+                        } catch (e) {
+                            // Schema 加载失败不影响页面正常使用（可能不在公司网络）
+                            console.warn('Schema 加载失败:', e.message);
+                        }
+                    }
+                };
+
+                onMounted(async () => {
+                    if (typeof hljs !== 'undefined') {
+                        hljs.configure({ languages: ['sql'] });
+                    }
+                    checkHealth();
+                    setInterval(checkHealth, 30000);
+
+                    // Check existing token
+                    if (accessToken.value) {
+                        const ok = await fetchUserInfo();
+                        if (ok) {
+                            isLoggedIn.value = true;
+                            await loadDBSources();
+                            try {
+                                await initDefaultSource();
+                            } catch (e) {
+                                console.warn('初始化默认数据源失败:', e.message);
+                            }
+                        } else {
+                            doLogout();
+                        }
                     }
                 });
 
@@ -1170,7 +2000,7 @@
                         if (dbSourceFilter.value.name) params.append('name', dbSourceFilter.value.name);
                         if (dbSourceFilter.value.host) params.append('host', dbSourceFilter.value.host);
                         if (dbSourceFilter.value.db_type) params.append('db_type', dbSourceFilter.value.db_type);
-                        const res = await fetch(`/api/db-sources?${params}`);
+                        const res = await apiFetch(`/api/db-sources?${params}`);
                         if (!res.ok) throw new Error('加载失败');
                         const data = await res.json();
                         dbSources.value = data.items;
@@ -1219,7 +2049,6 @@
 
                 const saveDBSource = async () => {
                     const form = dbSourceForm.value;
-                    // Password is required only when creating, not when editing (preserve existing)
                     if (!form.name || !form.host || !form.username || (!editingDBSource.value && !form.password)) {
                         showToast('请填写必填项', 'error');
                         return;
@@ -1247,12 +2076,14 @@
                             ? `/api/db-sources/${editingDBSource.value.id}`
                             : '/api/db-sources';
                         const method = editingDBSource.value ? 'PUT' : 'POST';
-                        const res = await fetch(url, {
+                        const res = await apiFetch(url, {
                             method,
-                            headers: { 'Content-Type': 'application/json' },
                             body: JSON.stringify(payload)
                         });
-                        if (!res.ok) throw new Error('保存失败');
+                        if (!res.ok) {
+                            const err = await res.json().catch(() => ({}));
+                            throw new Error(extractErrorMessage(err, '保存失败'));
+                        }
                         showToast(editingDBSource.value ? '更新成功' : '创建成功', 'success');
                         showDBSourceModal.value = false;
                         loadDBSources();
@@ -1266,7 +2097,7 @@
                 const deleteDBSource = async (source) => {
                     if (!confirm(`确定删除数据源 "${source.name}" 吗？`)) return;
                     try {
-                        const res = await fetch(`/api/db-sources/${source.id}`, { method: 'DELETE' });
+                        const res = await apiFetch(`/api/db-sources/${source.id}`, { method: 'DELETE' });
                         if (!res.ok) throw new Error('删除失败');
                         showToast('删除成功', 'success');
                         loadDBSources();
@@ -1278,7 +2109,7 @@
                 const testDBSourceConnection = async (source) => {
                     testingSource.value = source.id;
                     try {
-                        const res = await fetch(`/api/db-sources/${source.id}/test`, { method: 'POST' });
+                        const res = await apiFetch(`/api/db-sources/${source.id}/test`, { method: 'POST' });
                         const result = await res.json();
                         if (result.success) {
                             showToast(`连接成功: ${result.version}`, 'success');
@@ -1315,9 +2146,8 @@
                                 payload.sid = form.sid;
                             }
                         }
-                        const res = await fetch('/api/db-sources/test-connection', {
+                        const res = await apiFetch('/api/db-sources/test-connection', {
                             method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
                             body: JSON.stringify(payload)
                         });
                         const result = await res.json();
@@ -1335,7 +2165,476 @@
                     }
                 };
 
+                // ========== History Methods ==========
+                const loadHistory = async () => {
+                    loadingHistory.value = true;
+                    try {
+                        const url = hasPermission('analysis:history:all')
+                            ? `/api/analysis-history/all?page=${historyPage.value}&page_size=${historyPageSize.value}&keyword=${encodeURIComponent(historyFilter.value.keyword)}`
+                            : `/api/analysis-history?page=${historyPage.value}&page_size=${historyPageSize.value}&keyword=${encodeURIComponent(historyFilter.value.keyword)}`;
+                        const res = await apiFetch(url);
+                        if (!res.ok) throw new Error('加载失败');
+                        const data = await res.json();
+                        historyItems.value = data.items || [];
+                        historyTotal.value = data.total || 0;
+                    } catch (e) {
+                        showToast(e.message, 'error');
+                    } finally {
+                        loadingHistory.value = false;
+                    }
+                };
+
+                const viewHistoryDetail = async (id) => {
+                    try {
+                        const res = await apiFetch(`/api/analysis-history/${id}`);
+                        if (!res.ok) throw new Error('加载失败');
+                        historyDetail.value = await res.json();
+                        showHistoryDetailModal.value = true;
+                    } catch (e) {
+                        showToast(e.message, 'error');
+                    }
+                };
+
+                const deleteHistory = async (id) => {
+                    if (!confirm('确定删除这条分析历史吗？')) return;
+                    try {
+                        const res = await apiFetch(`/api/analysis-history/${id}`, { method: 'DELETE' });
+                        if (!res.ok) throw new Error('删除失败');
+                        showToast('删除成功', 'success');
+                        loadHistory();
+                    } catch (e) {
+                        showToast(e.message, 'error');
+                    }
+                };
+
+                // ========== Profile Methods ==========
+                const changePassword = async () => {
+                    if (!passwordForm.value.old_password || !passwordForm.value.new_password) {
+                        showToast('请填写完整', 'error');
+                        return;
+                    }
+                    changingPassword.value = true;
+                    try {
+                        const res = await apiFetch(`/api/users/${currentUser.value.id}/change-password`, {
+                            method: 'POST',
+                            body: JSON.stringify(passwordForm.value)
+                        });
+                        if (!res.ok) {
+                            const err = await res.json().catch(() => ({}));
+                            throw new Error(extractErrorMessage(err, '修改失败'));
+                        }
+                        showToast('密码修改成功', 'success');
+                        passwordForm.value = { old_password: '', new_password: '' };
+                    } catch (e) {
+                        showToast(e.message, 'error');
+                    } finally {
+                        changingPassword.value = false;
+                    }
+                };
+
+                // ========== User Management Methods ==========
+                const loadUsers = async () => {
+                    loadingUsers.value = true;
+                    try {
+                        const res = await apiFetch('/api/users');
+                        if (!res.ok) throw new Error('加载失败');
+                        users.value = await res.json();
+                    } catch (e) {
+                        showToast(e.message, 'error');
+                    } finally {
+                        loadingUsers.value = false;
+                    }
+                };
+
+                const loadAllRoles = async () => {
+                    try {
+                        const res = await apiFetch('/api/roles');
+                        if (res.ok) allRoles.value = await res.json();
+                    } catch (e) {}
+                };
+
+                const openUserModal = async (user = null) => {
+                    editingUser.value = user;
+                    if (user) {
+                        userForm.value = {
+                            username: user.username,
+                            real_name: user.real_name || '',
+                            email: user.email || '',
+                            password: '',
+                            role_ids: [],
+                            is_active: user.is_active
+                        };
+                    } else {
+                        userForm.value = { username: '', real_name: '', email: '', password: '', role_ids: [], is_active: true };
+                    }
+                    await loadAllRoles();
+                    // 编辑模式：根据角色名称反查 ID
+                    if (user && allRoles.value.length > 0) {
+                        const nameToId = {};
+                        allRoles.value.forEach(r => { nameToId[r.name] = r.id; });
+                        userForm.value.role_ids = user.roles.map(name => nameToId[name]).filter(id => id !== undefined);
+                    }
+                    showUserModal.value = true;
+                };
+
+                const saveUser = async () => {
+                    const form = userForm.value;
+                    if (!form.username || (!editingUser.value && !form.password)) {
+                        showToast('请填写必填项', 'error');
+                        return;
+                    }
+                    savingUser.value = true;
+                    try {
+                        const payload = {
+                            real_name: form.real_name || undefined,
+                            email: form.email || undefined,
+                            role_ids: form.role_ids,
+                            is_active: form.is_active
+                        };
+                        if (!editingUser.value) {
+                            payload.username = form.username;
+                            payload.password = form.password;
+                        } else if (form.password && form.password.trim()) {
+                            payload.password = form.password;
+                        }
+                        const url = editingUser.value ? `/api/users/${editingUser.value.id}` : '/api/users';
+                        const method = editingUser.value ? 'PUT' : 'POST';
+                        const res = await apiFetch(url, {
+                            method,
+                            body: JSON.stringify(payload)
+                        });
+                        if (!res.ok) {
+                            const err = await res.json().catch(() => ({}));
+                            throw new Error(extractErrorMessage(err, '保存失败'));
+                        }
+                        showToast(editingUser.value ? '更新成功' : '创建成功', 'success');
+                        showUserModal.value = false;
+                        loadUsers();
+                    } catch (e) {
+                        showToast(e.message, 'error');
+                    } finally {
+                        savingUser.value = false;
+                    }
+                };
+
+                const disableUser = async (user) => {
+                    if (!confirm(`确定禁用用户 "${user.username}" 吗？`)) return;
+                    try {
+                        const res = await apiFetch(`/api/users/${user.id}`, {
+                            method: 'DELETE'
+                        });
+                        if (!res.ok) throw new Error('操作失败');
+                        showToast('用户已禁用', 'success');
+                        loadUsers();
+                    } catch (e) {
+                        showToast(e.message, 'error');
+                    }
+                };
+
+                const resetUserPassword = async (user) => {
+                    const newPass = prompt(`为 ${user.username} 设置新密码:`);
+                    if (!newPass) return;
+                    let body;
+                    if (user.id === currentUser.value.id) {
+                        const oldPass = prompt('请输入您当前的密码（验证身份）:');
+                        if (!oldPass) return;
+                        body = { old_password: oldPass, new_password: newPass };
+                    } else {
+                        body = { old_password: 'admin', new_password: newPass };
+                    }
+                    try {
+                        const res = await apiFetch(`/api/users/${user.id}/change-password`, {
+                            method: 'POST',
+                            body: JSON.stringify(body)
+                        });
+                        if (!res.ok) {
+                            const err = await res.json().catch(() => ({}));
+                            throw new Error(extractErrorMessage(err, '重置失败'));
+                        }
+                        showToast('密码已重置', 'success');
+                    } catch (e) {
+                        showToast(e.message, 'error');
+                    }
+                };
+
+                // ========== Role Management Methods ==========
+                const openRoleModal = (role = null) => {
+                    editingRole.value = role;
+                    if (role) {
+                        roleForm.value = { name: role.name, description: role.description || '' };
+                    } else {
+                        roleForm.value = { name: '', description: '' };
+                    }
+                    showRoleModal.value = true;
+                };
+
+                const saveRole = async () => {
+                    savingRole.value = true;
+                    try {
+                        const payload = {
+                            name: roleForm.value.name.trim(),
+                            description: roleForm.value.description.trim() || undefined
+                        };
+                        const url = editingRole.value ? `/api/roles/${editingRole.value.id}` : '/api/roles';
+                        const method = editingRole.value ? 'PUT' : 'POST';
+                        const res = await apiFetch(url, {
+                            method,
+                            body: JSON.stringify(payload)
+                        });
+                        if (!res.ok) {
+                            const err = await res.json().catch(() => ({}));
+                            throw new Error(extractErrorMessage(err, '保存失败'));
+                        }
+                        showToast(editingRole.value ? '角色已更新' : '角色已创建', 'success');
+                        showRoleModal.value = false;
+                        loadRolesList();
+                    } catch (e) {
+                        showToast(e.message, 'error');
+                    } finally {
+                        savingRole.value = false;
+                    }
+                };
+
+                const deleteRole = async (role) => {
+                    if (!confirm(`确定删除角色 "${role.name}" 吗？\n注意：已绑定此角色的用户将失去该角色权限。`)) return;
+                    try {
+                        const res = await apiFetch(`/api/roles/${role.id}`, { method: 'DELETE' });
+                        if (!res.ok) {
+                            const err = await res.json().catch(() => ({}));
+                            throw new Error(extractErrorMessage(err, '删除失败'));
+                        }
+                        showToast('角色已删除', 'success');
+                        loadRolesList();
+                    } catch (e) {
+                        showToast(e.message, 'error');
+                    }
+                };
+
+                const getRoleAvatarClass = (name) => {
+                    const map = {
+                        'admin': 'bg-blue-500',
+                        'dba': 'bg-purple-500',
+                        'developer': 'bg-cyan-500'
+                    };
+                    return map[name?.toLowerCase()] || 'bg-gray-500';
+                };
+
+                const getRoleTagClass = (name) => {
+                    const map = {
+                        'admin': 'bg-green-100 text-green-700',
+                        'dba': 'bg-purple-100 text-purple-700',
+                        'developer': 'bg-blue-100 text-blue-700'
+                    };
+                    return map[name?.toLowerCase()] || 'bg-gray-100 text-gray-600';
+                };
+
+                const getRoleTag = (name) => {
+                    const map = {
+                        'admin': '超级管理员',
+                        'dba': 'DBA',
+                        'developer': '开发者'
+                    };
+                    return map[name?.toLowerCase()] || '自定义';
+                };
+
+                const selectRole = (role) => {
+                    selectedRole.value = role;
+                    roleDsPage.value = 1;
+                    showDsAssignForm.value = false;
+                    dsAssignSourceId.value = '';
+                    loadRoleDsPermissions(role.id);
+                };
+
+                const loadRoleDsPermissions = async (roleId) => {
+                    loadingRoleDsPermissions.value = true;
+                    try {
+                        let all = datasourcePermissions.value;
+                        // Fetch fresh data if local cache is empty
+                        if (all.length === 0) {
+                            const res = await apiFetch('/api/datasource-permissions');
+                            if (res.ok) {
+                                all = await res.json();
+                                datasourcePermissions.value = all;
+                            }
+                        }
+                        // Filter for selected role and enrich with source description
+                        const filtered = all.filter(dp => dp.role_id === roleId).map(dp => {
+                            const source = dbSources.value.find(s => s.id === dp.db_source_id);
+                            return {
+                                ...dp,
+                                description: source?.description || '',
+                                db_source_name: source?.name || dp.db_source_name || dp.db_source_id
+                            };
+                        });
+                        roleDsPermissions.value = filtered;
+                    } catch (e) {
+                        roleDsPermissions.value = [];
+                    } finally {
+                        loadingRoleDsPermissions.value = false;
+                    }
+                };
+
+                const assignDsToSelectedRole = async () => {
+                    if (!selectedRole.value || !dsAssignSourceId.value) return;
+                    try {
+                        const res = await apiFetch('/api/datasource-permissions', {
+                            method: 'POST',
+                            body: JSON.stringify({
+                                role_id: selectedRole.value.id,
+                                db_source_id: dsAssignSourceId.value
+                            })
+                        });
+                        if (!res.ok) {
+                            const err = await res.json().catch(() => ({}));
+                            throw new Error(extractErrorMessage(err, '分配失败'));
+                        }
+                        showToast('数据源权限分配成功', 'success');
+                        dsAssignSourceId.value = '';
+                        showDsAssignForm.value = false;
+                        // 先刷新全局列表，再刷新角色列表，确保 loadRoleDsPermissions 使用的是最新缓存
+                        const dsRes = await apiFetch('/api/datasource-permissions');
+                        if (dsRes.ok) datasourcePermissions.value = await dsRes.json();
+                        loadRoleDsPermissions(selectedRole.value.id);
+                    } catch (e) {
+                        showToast(e.message, 'error');
+                    }
+                };
+
+                const loadRolesList = async () => {
+                    loadingRoles.value = true;
+                    try {
+                        const [rolesRes, dsRes] = await Promise.allSettled([
+                            apiFetch('/api/roles'),
+                            apiFetch('/api/datasource-permissions')
+                        ]);
+                        if (rolesRes.status === 'fulfilled' && rolesRes.value.ok) {
+                            rolesList.value = await rolesRes.value.json();
+                            // Auto-select first role if none selected
+                            if (!selectedRole.value && rolesList.value.length > 0) {
+                                selectRole(rolesList.value[0]);
+                            } else if (selectedRole.value) {
+                                // Refresh selected role data
+                                const updated = rolesList.value.find(r => r.id === selectedRole.value.id);
+                                if (updated) {
+                                    selectedRole.value = updated;
+                                } else if (rolesList.value.length > 0) {
+                                    // Previously selected role was deleted, select first available
+                                    selectRole(rolesList.value[0]);
+                                } else {
+                                    selectedRole.value = null;
+                                }
+                            }
+                        }
+                        if (dsRes.status === 'fulfilled' && dsRes.value.ok) {
+                            datasourcePermissions.value = await dsRes.value.json();
+                            // Update selected role's datasource permissions using fetched data
+                            if (selectedRole.value) {
+                                roleDsPermissions.value = datasourcePermissions.value
+                                    .filter(dp => dp.role_id === selectedRole.value.id)
+                                    .map(dp => {
+                                        const source = dbSources.value.find(s => s.id === dp.db_source_id);
+                                        return {
+                                            ...dp,
+                                            description: source?.description || '',
+                                            db_source_name: source?.name || dp.db_source_name || dp.db_source_id
+                                        };
+                                    });
+                            }
+                        }
+                    } catch (e) {
+                        showToast('加载失败', 'error');
+                    } finally {
+                        loadingRoles.value = false;
+                    }
+                };
+
+                const openRolePermissionModal = async (role) => {
+                    editingRole.value = role;
+                    showRolePermissionModal.value = true;
+                    loadingRolePermissions.value = true;
+                    try {
+                        const res = await apiFetch(`/api/roles/${role.id}/permissions`);
+                        if (res.ok) {
+                            const data = await res.json();
+                            allPermissions.value = data.permissions || [];
+                        }
+                    } catch (e) {
+                        showToast('加载失败', 'error');
+                    } finally {
+                        loadingRolePermissions.value = false;
+                    }
+                };
+
+                const togglePermission = (perm) => {
+                    perm.granted = !perm.granted;
+                };
+
+                const saveRolePermissions = async () => {
+                    const grantedIds = allPermissions.value.filter(p => p.granted).map(p => p.id);
+                    savingRolePermissions.value = true;
+                    try {
+                        const res = await apiFetch(`/api/roles/${editingRole.value.id}/permissions`, {
+                            method: 'PUT',
+                            body: JSON.stringify({ permission_ids: grantedIds })
+                        });
+                        if (!res.ok) throw new Error('保存失败');
+                        showToast('权限已更新', 'success');
+                        showRolePermissionModal.value = false;
+                        loadRolesList();
+                    } catch (e) {
+                        showToast(e.message, 'error');
+                    } finally {
+                        savingRolePermissions.value = false;
+                    }
+                };
+
+                const assignDatasourcePermission = async () => {
+                    if (!dsPermRoleId.value || !dsPermSourceId.value) return;
+                    try {
+                        const res = await apiFetch('/api/datasource-permissions', {
+                            method: 'POST',
+                            body: JSON.stringify({
+                                role_id: parseInt(dsPermRoleId.value),
+                                db_source_id: dsPermSourceId.value
+                            })
+                        });
+                        if (!res.ok) {
+                            const err = await res.json().catch(() => ({}));
+                            throw new Error(extractErrorMessage(err, '分配失败'));
+                        }
+                        showToast('数据源权限分配成功', 'success');
+                        dsPermRoleId.value = '';
+                        dsPermSourceId.value = '';
+                        // 刷新全局权限列表，使弹窗和角色详情页同步更新
+                        const dsRes = await apiFetch('/api/datasource-permissions');
+                        if (dsRes.ok) datasourcePermissions.value = await dsRes.json();
+                        loadRolesList();
+                    } catch (e) {
+                        showToast(e.message, 'error');
+                    }
+                };
+
+                const revokeDatasourcePermission = async (roleId, dbSourceId) => {
+                    if (!confirm('确定撤销此数据源权限吗？')) return;
+                    try {
+                        const res = await apiFetch(`/api/datasource-permissions/${roleId}/${dbSourceId}`, { method: 'DELETE' });
+                        if (!res.ok) throw new Error('撤销失败');
+                        showToast('已撤销', 'success');
+                        // 先刷新全局列表，再刷新角色列表
+                        const dsRes = await apiFetch('/api/datasource-permissions');
+                        if (dsRes.ok) datasourcePermissions.value = await dsRes.json();
+                        loadRoleDsPermissions(roleId);
+                        loadRolesList();
+                    } catch (e) {
+                        showToast(e.message, 'error');
+                    }
+                };
+
                 return {
+                    // Auth
+                    isLoggedIn, currentUser, showUserMenu, loginForm, loginError, loggingIn,
+                    doLogin, doLogout, hasPermission,
+                    // App
                     sidebarOpen, toggleSidebar,
                     activeMenu, analyzeMode, sqlText, sqlId,
                     useLLM, useRules, analyzing, exporting, collecting, collectionTopN, collectionError, excludeSystemSQL, loadingRules,
@@ -1343,13 +2642,37 @@
                     // DB Sources
                     dbSources, loadingDBSources, dbSourceFilter, showDBSourceModal, editingDBSource, dbSourceForm, testingSource, testingModal, savingDBSource, testResult,
                     selectedCollectionSource, selectedAnalyzeSource, selectedSchema, schemaList, loadingSchemas,
-                    // Menu & Methods
-                    menuItems, inputModes,
+                    // Menu
+                    visibleMenuItems, inputModes,
                     analyzeSQL, analyzeBySqlId, collectSlowSQLs, analyzeCollectedSQL, onCollectionSourceChange, onAnalyzeSourceChange, loadSchemas,
                     loadRules, toggleRule, triggerFileUpload, handleFileUpload,
                     getRiskClass, getSeverityClass, handleMenuClick, copyToClipboard, exportReport,
                     // DB Source Methods
-                    loadDBSources, openDBSourceModal, saveDBSource, deleteDBSource, testDBSourceConnection, testDBSourceConnectionFromForm
+                    loadDBSources, openDBSourceModal, saveDBSource, deleteDBSource, testDBSourceConnection, testDBSourceConnectionFromForm,
+                    // History
+                    historyItems, historyTotal, historyPage, historyPageSize, loadingHistory, historyFilter,
+                    showHistoryDetailModal, historyDetail,
+                    loadHistory, viewHistoryDetail, deleteHistory, formatDate, formatJson,
+                    // Profile
+                    passwordForm, changingPassword, changePassword,
+                    // Users
+                    users, loadingUsers, showUserModal, editingUser, userForm, savingUser, allRoles,
+                    loadUsers, openUserModal, saveUser, disableUser, resetUserPassword,
+                    // Roles
+                    rolesList, loadingRoles, showRolePermissionModal, editingRole, allPermissions,
+                    savingRolePermissions, loadingRolePermissions, showRoleModal, roleForm, savingRole,
+                    loadRolesList, openRolePermissionModal, togglePermission, saveRolePermissions,
+                    openRoleModal, saveRole, deleteRole,
+                    // Role Page
+                    selectedRole, roleSearchQuery, roleDsPermissions, loadingRoleDsPermissions,
+                    roleDsPage, roleDsPageSize, showDsAssignForm, dsAssignSourceId, showAllDsPermModal,
+                    filteredRoles, groupedPermissions, paginatedRoleDsPermissions, roleDsTotalPages,
+                    availableDbSourcesForRole,
+                    getRoleAvatarClass, getRoleTagClass, getRoleTag, selectRole,
+                    loadRoleDsPermissions, assignDsToSelectedRole,
+                    // Datasource Permissions
+                    datasourcePermissions, dsPermRoleId, dsPermSourceId,
+                    assignDatasourcePermission, revokeDatasourcePermission
                 };
             }
         }).mount('#app');

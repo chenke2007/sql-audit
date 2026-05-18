@@ -15,7 +15,11 @@ from fastapi.responses import FileResponse
 
 from app.config import settings
 from app.oracle.client import oracle_client, OracleConnectionError
-from app.api.routes import collect_router, analyze_router, db_sources_router
+from app.api.routes import (
+    collect_router, analyze_router, db_sources_router,
+    auth_router, users_router, roles_router, analysis_history_router,
+    datasource_permissions_router
+)
 from app.core.oracle_client_init import init_thick_mode
 
 # 配置日志
@@ -63,7 +67,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="SQL Audit System",
     description="SQL智能审核与优化系统",
-    version="1.0.0",
+    version="1.2.1",
     lifespan=lifespan
 )
 
@@ -77,9 +81,14 @@ app.add_middleware(
 )
 
 # 注册API路由
+app.include_router(auth_router)
 app.include_router(collect_router)
 app.include_router(analyze_router)
 app.include_router(db_sources_router)
+app.include_router(users_router)
+app.include_router(roles_router)
+app.include_router(analysis_history_router)
+app.include_router(datasource_permissions_router)
 
 
 # 静态文件服务

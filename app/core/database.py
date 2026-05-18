@@ -56,6 +56,131 @@ def init_metadata_db():
         CREATE INDEX IF NOT EXISTS idx_db_sources_host ON db_sources(host)
     """)
 
+    # ========== 用户认证与 RBAC 表 ==========
+
+    # 用户表
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT UNIQUE NOT NULL,
+            password_hash TEXT NOT NULL,
+            real_name TEXT,
+            email TEXT,
+            is_active INTEGER DEFAULT 1,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    cursor.execute("""
+        CREATE INDEX IF NOT EXISTS idx_users_username ON users(username)
+    """)
+    cursor.execute("""
+        CREATE INDEX IF NOT EXISTS idx_users_active ON users(is_active)
+    """)
+
+    # 角色表
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS roles (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT UNIQUE NOT NULL,
+            description TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    cursor.execute("""
+        CREATE INDEX IF NOT EXISTS idx_roles_name ON roles(name)
+    """)
+
+    # 权限表
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS permissions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            code TEXT UNIQUE NOT NULL,
+            name TEXT NOT NULL,
+            description TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    cursor.execute("""
+        CREATE INDEX IF NOT EXISTS idx_permissions_code ON permissions(code)
+    """)
+
+    # 用户-角色关联表
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS user_roles (
+            user_id INTEGER NOT NULL,
+            role_id INTEGER NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (user_id, role_id),
+            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+            FOREIGN KEY (role_id) REFERENCES roles(id) ON DELETE CASCADE
+        )
+    """)
+    cursor.execute("""
+        CREATE INDEX IF NOT EXISTS idx_user_roles_user ON user_roles(user_id)
+    """)
+    cursor.execute("""
+        CREATE INDEX IF NOT EXISTS idx_user_roles_role ON user_roles(role_id)
+    """)
+
+    # 角色-权限关联表
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS role_permissions (
+            role_id INTEGER NOT NULL,
+            permission_id INTEGER NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (role_id, permission_id),
+            FOREIGN KEY (role_id) REFERENCES roles(id) ON DELETE CASCADE,
+            FOREIGN KEY (permission_id) REFERENCES permissions(id) ON DELETE CASCADE
+        )
+    """)
+    cursor.execute("""
+        CREATE INDEX IF NOT EXISTS idx_role_permissions_role ON role_permissions(role_id)
+    """)
+    cursor.execute("""
+        CREATE INDEX IF NOT EXISTS idx_role_permissions_perm ON role_permissions(permission_id)
+    """)
+
+    # 数据源-角色权限绑定表
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS datasource_permissions (
+            role_id INTEGER NOT NULL,
+            db_source_id TEXT NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (role_id, db_source_id),
+            FOREIGN KEY (role_id) REFERENCES roles(id) ON DELETE CASCADE
+        )
+    """)
+    cursor.execute("""
+        CREATE INDEX IF NOT EXISTS idx_ds_permissions_role ON datasource_permissions(role_id)
+    """)
+    cursor.execute("""
+        CREATE INDEX IF NOT EXISTS idx_ds_permissions_source ON datasource_permissions(db_source_id)
+    """)
+
+    # 分析历史表
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS analysis_history (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            db_source_id TEXT,
+            schema TEXT,
+            sql_text TEXT NOT NULL,
+            sql_id TEXT,
+            input_mode TEXT NOT NULL DEFAULT 'sql_text',
+            result_json TEXT,
+            risk_level TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+        )
+    """)
+    cursor.execute("""
+        CREATE INDEX IF NOT EXISTS idx_history_user ON analysis_history(user_id)
+    """)
+    cursor.execute("""
+        CREATE INDEX IF NOT EXISTS idx_history_created ON analysis_history(created_at)
+    """)
+
     conn.commit()
     conn.close()
 

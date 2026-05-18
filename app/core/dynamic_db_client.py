@@ -28,12 +28,13 @@ class DynamicOracleClient:
         self._source: Optional[DBSource] = None
         self._source_id: Optional[str] = None
 
-    def connect_to_source(self, source_id: Optional[str] = None) -> bool:
+    def connect_to_source(self, source_id: Optional[str] = None, timeout: int = 0) -> bool:
         """
         连接到指定数据源
 
         Args:
             source_id: 数据源ID，None则使用默认数据源
+            timeout: 连接超时秒数，0表示使用默认超时
 
         Returns:
             是否连接成功
@@ -55,6 +56,13 @@ class DynamicOracleClient:
         self._source_id = source.id
 
         # 创建连接
+        connect_kwargs = {
+            "user": source.username,
+            "password": source.password,
+        }
+        if timeout > 0:
+            connect_kwargs["tcp_connect_timeout"] = timeout
+
         try:
             if source.service_name:
                 dsn = f"{source.host}:{source.port}/{source.service_name}"
@@ -63,11 +71,8 @@ class DynamicOracleClient:
             else:
                 raise ValueError("Oracle 连接需要 SID 或 Service Name")
 
-            self._connection = oracledb.connect(
-                user=source.username,
-                password=source.password,
-                dsn=dsn
-            )
+            connect_kwargs["dsn"] = dsn
+            self._connection = oracledb.connect(**connect_kwargs)
 
             logger.info(f"已连接到数据源: {source.name} ({source.host}:{source.port})")
             return True
@@ -78,11 +83,7 @@ class DynamicOracleClient:
                 # thin 模式不支持旧版 Oracle，尝试启用 thick 模式后重连
                 if ensure_thick_mode():
                     try:
-                        self._connection = oracledb.connect(
-                            user=source.username,
-                            password=source.password,
-                            dsn=dsn
-                        )
+                        self._connection = oracledb.connect(**connect_kwargs)
                         logger.info(
                             f"已连接到数据源(thick模式): {source.name} ({source.host}:{source.port})"
                         )

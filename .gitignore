@@ -69,3 +69,6 @@ data/
 # Test artifacts
 EOF
 PYEOF
+
+# Misc temp files
+1

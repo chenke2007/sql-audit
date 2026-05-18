@@ -4,13 +4,15 @@
 提供数据库源的 CRUD 和连接测试功能
 """
 
+import asyncio
 import logging
 from typing import List, Optional
 from pydantic import BaseModel, Field
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Depends
 
 from app.core.database import DBSourceManager, DBSource
 from app.core.dynamic_db_client import DynamicOracleClient
+from app.core.rbac import get_current_user, require_permission, get_user_datasource_permissions
 from app.oracle.metadata import MetadataCollector
 
 logger = logging.getLogger(__name__)
@@ -103,18 +105,26 @@ class TestConnectionRequest(BaseModel):
 async def list_db_sources(
     db_type: Optional[str] = Query(None, description="筛选数据库类型"),
     host: Optional[str] = Query(None, description="筛选 IP 地址（模糊匹配）"),
-    name: Optional[str] = Query(None, description="筛选名称（模糊匹配）")
+    name: Optional[str] = Query(None, description="筛选名称（模糊匹配）"),
+    current_user: dict = Depends(get_current_user)
 ):
     """
     列出数据库源
 
-    支持按类型、IP、名称筛选
+    支持按类型、IP、名称筛选。
+    非管理员只能看到已授权的数据源。
     """
     sources = DBSourceManager.list_all(
         db_type=db_type,
         host=host,
         name=name
     )
+
+    # 非管理员过滤数据源
+    is_admin = "admin" in current_user.get("role_names", [])
+    if not is_admin:
+        allowed_ids = set(get_user_datasource_permissions(current_user["id"]))
+        sources = [s for s in sources if s.id in allowed_ids]
 
     return DBSourceListResponse(
         items=[DBSourceResponse(**s.to_dict()) for s in sources],
@@ -123,31 +133,55 @@ async def list_db_sources(
 
 
 @router.get("/default", response_model=Optional[DBSourceResponse])
-async def get_default_db_source():
+async def get_default_db_source(
+    current_user: dict = Depends(get_current_user)
+):
     """
     获取默认数据源
     """
     source = DBSourceManager.get_default()
     if not source:
         return None
+
+    # 非管理员检查权限
+    is_admin = "admin" in current_user.get("role_names", [])
+    if not is_admin:
+        allowed_ids = set(get_user_datasource_permissions(current_user["id"]))
+        if source.id not in allowed_ids:
+            raise HTTPException(status_code=403, detail="没有权限访问此数据源")
+
     return DBSourceResponse(**source.to_dict())
 
 
 @router.get("/{source_id}", response_model=DBSourceResponse)
-async def get_db_source(source_id: str):
+async def get_db_source(
+    source_id: str,
+    current_user: dict = Depends(get_current_user)
+):
     """
     获取数据源详情
     """
     source = DBSourceManager.get_by_id(source_id)
     if not source:
         raise HTTPException(status_code=404, detail="数据源不存在")
+
+    # 非管理员检查权限
+    is_admin = "admin" in current_user.get("role_names", [])
+    if not is_admin:
+        allowed_ids = set(get_user_datasource_permissions(current_user["id"]))
+        if source_id not in allowed_ids:
+            raise HTTPException(status_code=403, detail="没有权限访问此数据源")
+
     return DBSourceResponse(**source.to_dict())
 
 
 @router.post("", response_model=DBSourceResponse)
-async def create_db_source(source_data: DBSourceCreate):
+async def create_db_source(
+    source_data: DBSourceCreate,
+    current_user: dict = Depends(require_permission("datasource:manage"))
+):
     """
-    创建新数据源
+    创建新数据源（管理员）
 
     - 首次创建的数据源自动设为默认
     - 名称必须唯一
@@ -175,9 +209,13 @@ async def create_db_source(source_data: DBSourceCreate):
 
 
 @router.put("/{source_id}", response_model=DBSourceResponse)
-async def update_db_source(source_id: str, source_data: DBSourceUpdate):
+async def update_db_source(
+    source_id: str,
+    source_data: DBSourceUpdate,
+    current_user: dict = Depends(require_permission("datasource:manage"))
+):
     """
-    更新数据源
+    更新数据源（管理员）
 
     - 不传 password 则不修改密码
     - 可以设置/取消默认数据源
@@ -211,9 +249,12 @@ async def update_db_source(source_id: str, source_data: DBSourceUpdate):
 
 
 @router.delete("/{source_id}")
-async def delete_db_source(source_id: str):
+async def delete_db_source(
+    source_id: str,
+    current_user: dict = Depends(require_permission("datasource:manage"))
+):
     """
-    删除数据源
+    删除数据源（管理员）
     """
     source = DBSourceManager.get_by_id(source_id)
     if not source:
@@ -227,7 +268,10 @@ async def delete_db_source(source_id: str):
 
 
 @router.post("/{source_id}/test", response_model=TestConnectionResponse)
-async def test_db_source_connection(source_id: str):
+async def test_db_source_connection(
+    source_id: str,
+    current_user: dict = Depends(get_current_user)
+):
     """
     测试数据源连接
 
@@ -236,6 +280,13 @@ async def test_db_source_connection(source_id: str):
     source = DBSourceManager.get_by_id(source_id)
     if not source:
         raise HTTPException(status_code=404, detail="数据源不存在")
+
+    # 非管理员检查权限
+    is_admin = "admin" in current_user.get("role_names", [])
+    if not is_admin:
+        allowed_ids = set(get_user_datasource_permissions(current_user["id"]))
+        if source_id not in allowed_ids:
+            raise HTTPException(status_code=403, detail="没有权限访问此数据源")
 
     success, message = DBSourceManager.test_connection(source)
 
@@ -247,11 +298,14 @@ async def test_db_source_connection(source_id: str):
 
 
 @router.post("/test-connection", response_model=TestConnectionResponse)
-async def test_connection_without_save(data: TestConnectionRequest):
+async def test_connection_without_save(
+    data: TestConnectionRequest,
+    current_user: dict = Depends(require_permission("datasource:manage"))
+):
     """
     测试数据库连接（不保存数据源）
 
-    用于数据源创建/编辑时的连接测试。
+    用于数据源创建/编辑时的连接测试（管理员）。
     """
     from app.core.database import DBSource
 
@@ -278,7 +332,10 @@ async def test_connection_without_save(data: TestConnectionRequest):
 
 
 @router.get("/{source_id}/schemas", response_model=SchemaListResponse)
-async def get_db_source_schemas(source_id: str):
+async def get_db_source_schemas(
+    source_id: str,
+    current_user: dict = Depends(get_current_user)
+):
     """
     获取数据源的 Schema 列表
 
@@ -288,24 +345,40 @@ async def get_db_source_schemas(source_id: str):
     if not source:
         raise HTTPException(status_code=404, detail="数据源不存在")
 
-    client = None
-    try:
-        client = DynamicOracleClient()
-        client.connect_to_source(source_id)
+    # 非管理员检查权限
+    is_admin = "admin" in current_user.get("role_names", [])
+    if not is_admin:
+        allowed_ids = set(get_user_datasource_permissions(current_user["id"]))
+        if source_id not in allowed_ids:
+            raise HTTPException(status_code=403, detail="没有权限访问此数据源")
 
+    def _fetch_schemas(source_id: str):
+        client = None
         try:
-            collector = MetadataCollector(client)
-            schemas = collector.get_schemas()
-
-            return SchemaListResponse(
-                schemas=schemas,
-                total=len(schemas)
-            )
+            client = DynamicOracleClient()
+            client.connect_to_source(source_id, timeout=8)
+            try:
+                collector = MetadataCollector(client)
+                return collector.get_schemas()
+            finally:
+                client.close()
         finally:
-            client.close()
+            if client:
+                client.close()
 
+    try:
+        schemas = await asyncio.wait_for(
+            asyncio.to_thread(_fetch_schemas, source_id),
+            timeout=10
+        )
+        return SchemaListResponse(schemas=schemas, total=len(schemas))
+    except asyncio.TimeoutError:
+        raise HTTPException(status_code=504, detail="连接数据源超时，请检查网络或数据源配置")
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
+        error_str = str(e).lower()
+        if "timed out" in error_str or "timeout" in error_str:
+            raise HTTPException(status_code=504, detail="连接数据源超时，请检查网络或数据源配置")
         logger.error(f"获取 schema 列表失败: {e}")
         raise HTTPException(status_code=500, detail=f"获取 schema 列表失败: {e}")

@@ -7,15 +7,17 @@ SQL 采集 API 路由
 3. 文件上传
 """
 
+import asyncio
 import logging
 from typing import List, Optional
 
-from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile
+from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile, Depends
 from pydantic import BaseModel, Field
 
 from app.config import settings
 from app.core.dynamic_db_client import DynamicOracleClient
 from app.core.database import DBSourceManager
+from app.core.rbac import get_current_user, require_permission, has_datasource_permission
 from app.oracle.client import oracle_client, OracleConnectionError, OracleQueryError
 from app.oracle.collector import SQLCollector, SQLObject
 from app.oracle.metadata import MetadataCollector
@@ -117,30 +119,56 @@ def sql_object_to_response(obj: SQLObject, truncate_sql: bool = True) -> SQLObje
 # ========== 路由 ==========
 
 @router.post("/slow-sqls", response_model=List[SQLObjectResponse])
-async def collect_slow_sqls(request: SlowSQLCollectionRequest):
+async def collect_slow_sqls(
+    request: SlowSQLCollectionRequest,
+    current_user: dict = Depends(require_permission("datasource:use"))
+):
     """
     自动采集慢SQL
 
     从v$sql中按资源消耗排序，获取Top N慢SQL。
     支持通过 db_source_id 指定数据源，不传则使用默认数据源。
     """
+    # 检查数据源权限
+    if request.db_source_id:
+        if not has_datasource_permission(current_user["id"], request.db_source_id):
+            raise HTTPException(status_code=403, detail="没有权限使用此数据源")
+
     try:
         # 创建动态客户端
         client = DynamicOracleClient()
-        client.connect_to_source(request.db_source_id)
+
+        # 连接数据库（异步线程 + 超时）
+        try:
+            await asyncio.wait_for(
+                asyncio.to_thread(client.connect_to_source, request.db_source_id, timeout=8),
+                timeout=10
+            )
+        except asyncio.TimeoutError:
+            raise HTTPException(status_code=504, detail="连接数据源超时，请检查网络或数据源配置")
 
         try:
             # 创建使用动态客户端的采集器
             from app.oracle.collector import SQLCollector
             collector = SQLCollector(client)
 
-            results = collector.collect_slow_sqls(
-                top_n=request.top_n,
-                cpu_threshold_ms=request.cpu_threshold_ms,
-                elapsed_threshold_ms=request.elapsed_threshold_ms,
-                buffer_gets_threshold=request.buffer_gets_threshold,
-                exclude_system=request.exclude_system
-            )
+            # 采集慢SQL（异步线程 + 超时）
+            def _do_collect():
+                return collector.collect_slow_sqls(
+                    top_n=request.top_n,
+                    cpu_threshold_ms=request.cpu_threshold_ms,
+                    elapsed_threshold_ms=request.elapsed_threshold_ms,
+                    buffer_gets_threshold=request.buffer_gets_threshold,
+                    exclude_system=request.exclude_system
+                )
+
+            try:
+                results = await asyncio.wait_for(
+                    asyncio.to_thread(_do_collect),
+                    timeout=15
+                )
+            except asyncio.TimeoutError:
+                raise HTTPException(status_code=504, detail="采集慢SQL超时，请检查网络或数据源配置")
 
             # 获取执行计划
             for obj in results:
@@ -163,22 +191,49 @@ async def collect_slow_sqls(request: SlowSQLCollectionRequest):
         raise HTTPException(status_code=500, detail=f"采集失败: {e}")
 
 @router.post("/by-sql-id", response_model=SQLObjectResponse)
-async def get_sql_by_id(request: SQLIdQueryRequest):
+async def get_sql_by_id(
+    request: SQLIdQueryRequest,
+    current_user: dict = Depends(require_permission("datasource:use"))
+):
     """
     根据SQL_ID查询SQL
 
     查询顺序: 1. v$sql (实时缓存) 2. AWR历史数据
     支持通过 db_source_id 指定数据源，不传则使用默认数据源。
     """
+    # 检查数据源权限
+    if request.db_source_id:
+        if not has_datasource_permission(current_user["id"], request.db_source_id):
+            raise HTTPException(status_code=403, detail="没有权限使用此数据源")
+
     try:
         # 创建动态客户端
         client = DynamicOracleClient()
-        client.connect_to_source(request.db_source_id)
+
+        # 连接数据库（异步线程 + 超时）
+        try:
+            await asyncio.wait_for(
+                asyncio.to_thread(client.connect_to_source, request.db_source_id, timeout=8),
+                timeout=10
+            )
+        except asyncio.TimeoutError:
+            raise HTTPException(status_code=504, detail="连接数据源超时，请检查网络或数据源配置")
 
         try:
             from app.oracle.collector import SQLCollector
             collector = SQLCollector(client)
-            result = collector.get_sql_by_id(request.sql_id)
+
+            # 查询SQL（异步线程 + 超时）
+            def _do_query():
+                return collector.get_sql_by_id(request.sql_id)
+
+            try:
+                result = await asyncio.wait_for(
+                    asyncio.to_thread(_do_query),
+                    timeout=15
+                )
+            except asyncio.TimeoutError:
+                raise HTTPException(status_code=504, detail="查询SQL超时，请检查网络或数据源配置")
 
             if not result:
                 raise HTTPException(
@@ -204,26 +259,52 @@ async def get_sql_by_id(request: SQLIdQueryRequest):
         raise HTTPException(status_code=500, detail=f"查询失败: {e}")
 
 @router.post("/upload-sql", response_model=SQLObjectResponse)
-async def upload_sql(request: SQLUploadRequest):
+async def upload_sql(
+    request: SQLUploadRequest,
+    current_user: dict = Depends(require_permission("datasource:use"))
+):
     """
     上传SQL文本进行分析
 
     在测试库执行EXPLAIN PLAN获取执行计划。
     支持通过 db_source_id 指定数据源，不传则使用默认数据源。
     """
+    # 检查数据源权限
+    if request.db_source_id:
+        if not has_datasource_permission(current_user["id"], request.db_source_id):
+            raise HTTPException(status_code=403, detail="没有权限使用此数据源")
+
     try:
         # 创建动态客户端
         client = DynamicOracleClient()
-        client.connect_to_source(request.db_source_id)
+
+        # 连接数据库（异步线程 + 超时）
+        try:
+            await asyncio.wait_for(
+                asyncio.to_thread(client.connect_to_source, request.db_source_id, timeout=8),
+                timeout=10
+            )
+        except asyncio.TimeoutError:
+            raise HTTPException(status_code=504, detail="连接数据源超时，请检查网络或数据源配置")
 
         try:
             from app.oracle.collector import SQLCollector
             collector = SQLCollector(client)
 
-            # 生成执行计划
+            # 生成执行计划（异步线程 + 超时）
             plan = None
             if request.include_plan:
-                plan = collector.explain_sql(request.sql_text)
+                def _do_explain():
+                    return collector.explain_sql(request.sql_text)
+
+                try:
+                    plan = await asyncio.wait_for(
+                        asyncio.to_thread(_do_explain),
+                        timeout=15
+                    )
+                except asyncio.TimeoutError:
+                    logger.warning("生成执行计划超时")
+                    plan = None
 
             # 构建SQL对象
             sql_obj = SQLObject(
@@ -248,7 +329,8 @@ async def upload_sql(request: SQLUploadRequest):
 async def upload_sql_file(
     file: UploadFile = File(..., description="SQL文件 (.sql, .txt)"),
     include_plan: bool = Form(True, description="是否获取执行计划"),
-    db_source_id: Optional[str] = Form(None, description="数据源ID，不传则使用默认数据源")
+    db_source_id: Optional[str] = Form(None, description="数据源ID，不传则使用默认数据源"),
+    current_user: dict = Depends(require_permission("datasource:use"))
 ):
     """
     上传SQL文件进行分析
@@ -256,6 +338,11 @@ async def upload_sql_file(
     支持多行SQL，按分号分割。
     支持通过 db_source_id 指定数据源，不传则使用默认数据源。
     """
+    # 检查数据源权限
+    if db_source_id:
+        if not has_datasource_permission(current_user["id"], db_source_id):
+            raise HTTPException(status_code=403, detail="没有权限使用此数据源")
+
     # 检查文件类型
     allowed_extensions = {".sql", ".txt"}
     file_ext = file.filename.lower()
@@ -277,7 +364,15 @@ async def upload_sql_file(
 
         # 创建动态客户端
         client = DynamicOracleClient()
-        client.connect_to_source(db_source_id)
+
+        # 连接数据库（异步线程 + 超时）
+        try:
+            await asyncio.wait_for(
+                asyncio.to_thread(client.connect_to_source, db_source_id, timeout=8),
+                timeout=10
+            )
+        except asyncio.TimeoutError:
+            raise HTTPException(status_code=504, detail="连接数据源超时，请检查网络或数据源配置")
 
         try:
             from app.oracle.collector import SQLCollector
@@ -319,7 +414,8 @@ async def upload_sql_file(
 async def get_table_metadata(
     table_name: str,
     owner: Optional[str] = None,
-    db_source_id: Optional[str] = None
+    db_source_id: Optional[str] = None,
+    current_user: dict = Depends(require_permission("datasource:use"))
 ):
     """
     获取表的元数据信息
@@ -327,14 +423,38 @@ async def get_table_metadata(
     包含表信息、列信息、索引信息。
     支持通过 db_source_id 指定数据源，不传则使用默认数据源。
     """
+    # 检查数据源权限
+    if db_source_id:
+        if not has_datasource_permission(current_user["id"], db_source_id):
+            raise HTTPException(status_code=403, detail="没有权限使用此数据源")
+
     client = None
     try:
         client = DynamicOracleClient()
-        client.connect_to_source(db_source_id)
+
+        # 连接数据库（异步线程 + 超时）
+        try:
+            await asyncio.wait_for(
+                asyncio.to_thread(client.connect_to_source, db_source_id, timeout=8),
+                timeout=10
+            )
+        except asyncio.TimeoutError:
+            raise HTTPException(status_code=504, detail="连接数据源超时，请检查网络或数据源配置")
 
         from app.oracle.metadata import MetadataCollector
         collector = MetadataCollector(client)
-        metadata = collector.get_table_metadata(table_name, owner)
+
+        # 获取元数据（异步线程 + 超时）
+        def _do_get_meta():
+            return collector.get_table_metadata(table_name, owner)
+
+        try:
+            metadata = await asyncio.wait_for(
+                asyncio.to_thread(_do_get_meta),
+                timeout=15
+            )
+        except asyncio.TimeoutError:
+            raise HTTPException(status_code=504, detail="获取表元数据超时，请检查网络或数据源配置")
 
         if not metadata:
             raise HTTPException(

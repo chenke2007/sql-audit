@@ -426,8 +426,10 @@ class IndexMissingRule(SQLRule):
 
         # 如果有执行计划上下文，检查是否发生了全表扫描
         if context and 'execution_plan' in context:
-            plan = context.get('execution_plan', [])
-            full_scans = [op for op in plan if 'TABLE ACCESS FULL' in str(op)]
+            plan = context.get('execution_plan', {})
+            # 兼容 dict 格式（统一后的格式）和旧格式
+            operations = plan.get('operations', []) if isinstance(plan, dict) else plan
+            full_scans = [op for op in operations if 'TABLE ACCESS FULL' in str(op)]
 
             if full_scans and where_columns:
                 return RuleViolation(

@@ -7,19 +7,22 @@ SQL 分析 API 路由
 3. 综合分析（规则 + LLM）
 """
 
+import asyncio
 import logging
 from datetime import datetime
 from typing import List, Optional, Dict, Any
 
-from fastapi import APIRouter, HTTPException, BackgroundTasks, Response
+from fastapi import APIRouter, HTTPException, BackgroundTasks, Response, Depends
 from pydantic import BaseModel, Field
 
 from app.core import rule_engine, sql_analyzer, preprocess_sql
+from app.core.rbac import get_current_user, require_permission
+from app.core.database import DBSourceManager
 from app.exporters import registry
 from app.oracle.client import oracle_client, OracleConnectionError, OracleQueryError
 from app.oracle.collector import SQLCollector
 from app.core.dynamic_db_client import DynamicOracleClient
-from app.core.database import DBSourceManager
+from app.api.routes.analysis_history import save_analysis_history
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/analyze", tags=["SQL分析"])
@@ -63,6 +66,7 @@ class LLMAnalysisResponse(BaseModel):
 class AnalysisResultResponse(BaseModel):
     """分析结果响应"""
     sql_id: Optional[str]
+    sql_text: Optional[str] = None
     sql_type: str
     tables: List[str]
     risk_level: Optional[str] = None  # CRITICAL, HIGH, MEDIUM, LOW
@@ -89,8 +93,8 @@ class ExportRequest(AnalyzeRequest):
 
 # ========== 辅助函数 ==========
 
-def _get_execution_plan(sql_id: str, client=None) -> Optional[List[Dict]]:
-    """获取 SQL 的执行计划"""
+def _get_execution_plan(sql_id: str, client=None) -> Optional[Dict[str, Any]]:
+    """获取 SQL 的执行计划（从 v$sql 缓存中获取真实执行计划）"""
     # 使用传入的客户端或默认客户端
     if client is None:
         if not oracle_client.is_connected:
@@ -100,9 +104,40 @@ def _get_execution_plan(sql_id: str, client=None) -> Optional[List[Dict]]:
     try:
         collector = SQLCollector(client)
         plan = collector.get_execution_plan(sql_id)
-        return plan
+        if plan:
+            return {
+                "sql_id": plan.sql_id,
+                "plan_hash_value": plan.plan_hash_value,
+                "plan_text": plan.plan_text,
+                "operations": plan.operations
+            }
+        return None
     except Exception as e:
         logger.warning(f"获取执行计划失败: {e}")
+        return None
+
+
+def _explain_sql(sql_text: str, client=None) -> Optional[Dict[str, Any]]:
+    """通过 EXPLAIN PLAN 为 SQL 文本生成执行计划"""
+    # 使用传入的客户端或默认客户端
+    if client is None:
+        if not oracle_client.is_connected:
+            return None
+        client = oracle_client
+
+    try:
+        collector = SQLCollector(client)
+        plan = collector.explain_sql(sql_text)
+        if plan:
+            return {
+                "sql_id": plan.sql_id,
+                "plan_hash_value": plan.plan_hash_value,
+                "plan_text": plan.plan_text,
+                "operations": plan.operations
+            }
+        return None
+    except Exception as e:
+        logger.warning(f"通过 EXPLAIN PLAN 生成执行计划失败: {e}")
         return None
 
 
@@ -202,18 +237,35 @@ def _calculate_risk_level(violations, llm_analysis) -> str:
 # ========== 路由 ==========
 
 @router.post("/single", response_model=AnalysisResultResponse)
-async def analyze_sql(request: AnalyzeRequest):
+async def analyze_sql(
+    request: AnalyzeRequest,
+    current_user: dict = Depends(require_permission("analysis:execute"))
+):
     """
     单条 SQL 分析
 
     结合规则引擎和 LLM 对 SQL 进行全面分析。
     支持通过 db_source_id 指定数据源，不传则使用默认数据源。
     """
+    # 检查数据源权限
+    if request.db_source_id:
+        from app.core.rbac import has_datasource_permission
+        if not has_datasource_permission(current_user["id"], request.db_source_id):
+            raise HTTPException(status_code=403, detail="没有权限使用此数据源")
+
     # 创建动态客户端
     client = None
     try:
         client = DynamicOracleClient()
-        client.connect_to_source(request.db_source_id)
+
+        # 连接数据库（异步线程 + 超时，防止阻塞事件循环）
+        try:
+            await asyncio.wait_for(
+                asyncio.to_thread(client.connect_to_source, request.db_source_id, timeout=8),
+                timeout=10
+            )
+        except asyncio.TimeoutError:
+            raise HTTPException(status_code=504, detail="连接数据源超时，请检查网络或数据源配置")
 
         # 预处理 SQL
         try:
@@ -224,6 +276,7 @@ async def analyze_sql(request: AnalyzeRequest):
 
         result = AnalysisResultResponse(
             sql_id=request.sql_id,
+            sql_text=request.sql_text,
             sql_type=parsed.sql_type.value,
             tables=[t.full_name() for t in parsed.tables],
             rule_violations=[],
@@ -234,13 +287,34 @@ async def analyze_sql(request: AnalyzeRequest):
         shared_execution_plan = None
         shared_table_metadata = None
 
-        if request.include_plan and request.sql_id:
-            shared_execution_plan = _get_execution_plan(request.sql_id, client)
+        if request.include_plan:
+            def _fetch_plan():
+                if request.sql_id:
+                    return _get_execution_plan(request.sql_id, client)
+                else:
+                    return _explain_sql(request.sql_text, client)
+
+            try:
+                shared_execution_plan = await asyncio.wait_for(
+                    asyncio.to_thread(_fetch_plan),
+                    timeout=10
+                )
+            except asyncio.TimeoutError:
+                logger.warning("获取执行计划超时")
 
         if parsed.tables:
-            shared_table_metadata = _get_table_metadata(
-                list(parsed.tables), schema=request.schema, client=client
-            )
+            def _fetch_metadata():
+                return _get_table_metadata(
+                    list(parsed.tables), schema=request.schema, client=client
+                )
+
+            try:
+                shared_table_metadata = await asyncio.wait_for(
+                    asyncio.to_thread(_fetch_metadata),
+                    timeout=10
+                )
+            except asyncio.TimeoutError:
+                logger.warning("获取表元数据超时")
 
         # 规则引擎分析
         rule_result = None
@@ -316,6 +390,21 @@ async def analyze_sql(request: AnalyzeRequest):
         # 计算风险等级
         result.risk_level = _calculate_risk_level(result.rule_violations, result.llm_analysis)
 
+        # 保存分析历史
+        try:
+            await save_analysis_history(
+                user_id=current_user["id"],
+                db_source_id=request.db_source_id,
+                schema=request.schema,
+                sql_text=request.sql_text,
+                sql_id=request.sql_id,
+                input_mode="sql_text",
+                result=result.model_dump() if hasattr(result, "model_dump") else result.__dict__,
+                risk_level=result.risk_level
+            )
+        except Exception as e:
+            logger.warning(f"保存分析历史失败: {e}")
+
         return result
 
     except ValueError as e:
@@ -329,7 +418,8 @@ async def analyze_sql(request: AnalyzeRequest):
 async def analyze_by_sql_id(
     sql_id: str,
     use_llm: bool = True,
-    db_source_id: Optional[str] = None
+    db_source_id: Optional[str] = None,
+    current_user: dict = Depends(require_permission("analysis:execute"))
 ):
     """
     通过 SQL_ID 分析 SQL
@@ -337,15 +427,40 @@ async def analyze_by_sql_id(
     自动从数据库获取 SQL 文本和执行计划进行分析。
     支持通过 db_source_id 指定数据源，不传则使用默认数据源。
     """
+    # 检查数据源权限
+    if db_source_id:
+        from app.core.rbac import has_datasource_permission
+        if not has_datasource_permission(current_user["id"], db_source_id):
+            raise HTTPException(status_code=403, detail="没有权限使用此数据源")
+
     try:
         # 创建动态客户端
         client = DynamicOracleClient()
-        client.connect_to_source(db_source_id)
+
+        # 连接数据库（异步线程 + 超时）
+        try:
+            await asyncio.wait_for(
+                asyncio.to_thread(client.connect_to_source, db_source_id, timeout=8),
+                timeout=10
+            )
+        except asyncio.TimeoutError:
+            raise HTTPException(status_code=504, detail="连接数据源超时，请检查网络或数据源配置")
 
         try:
             from app.oracle.collector import SQLCollector
             collector = SQLCollector(client)
-            sql_obj = collector.get_sql_by_id(sql_id)
+
+            # 获取 SQL（异步线程 + 超时）
+            def _fetch_sql():
+                return collector.get_sql_by_id(sql_id)
+
+            try:
+                sql_obj = await asyncio.wait_for(
+                    asyncio.to_thread(_fetch_sql),
+                    timeout=10
+                )
+            except asyncio.TimeoutError:
+                raise HTTPException(status_code=504, detail="查询 SQL 信息超时，请检查网络或数据源配置")
 
             if not sql_obj:
                 raise HTTPException(
@@ -362,7 +477,24 @@ async def analyze_by_sql_id(
                 include_plan=True
             )
 
-            return await analyze_sql(request)
+            result = await analyze_sql(request, current_user)
+
+            # 保存分析历史
+            try:
+                await save_analysis_history(
+                    user_id=current_user["id"],
+                    db_source_id=db_source_id,
+                    schema=None,
+                    sql_text=sql_obj.sql_text,
+                    sql_id=sql_id,
+                    input_mode="sql_id",
+                    result=result.model_dump() if hasattr(result, "model_dump") else result.__dict__,
+                    risk_level=result.risk_level
+                )
+            except Exception as e:
+                logger.warning(f"保存分析历史失败: {e}")
+
+            return result
         finally:
             client.close()
 
@@ -375,7 +507,10 @@ async def analyze_by_sql_id(
         raise HTTPException(status_code=500, detail=f"分析失败: {e}")
 
 @router.post("/batch", response_model=BatchAnalyzeResponse)
-async def analyze_batch(request: BatchAnalyzeRequest):
+async def analyze_batch(
+    request: BatchAnalyzeRequest,
+    current_user: dict = Depends(require_permission("analysis:execute"))
+):
     """
     批量 SQL 分析
 
@@ -423,7 +558,11 @@ async def list_rules():
 
 
 @router.post("/rules/{rule_id}/toggle")
-async def toggle_rule(rule_id: str, enabled: bool):
+async def toggle_rule(
+    rule_id: str,
+    enabled: bool,
+    current_user: dict = Depends(require_permission("analysis:execute"))
+):
     """
     启用/禁用规则
     """
@@ -447,7 +586,10 @@ async def list_export_formats():
 
 
 @router.post("/export")
-async def export_analysis(request: ExportRequest):
+async def export_analysis(
+    request: ExportRequest,
+    current_user: dict = Depends(require_permission("analysis:execute"))
+):
     """
     统一导出接口 - 支持 PDF、HTML、Markdown 格式
 
@@ -515,7 +657,10 @@ async def export_analysis(request: ExportRequest):
 
 
 @router.post("/export/pdf")
-async def export_analysis_pdf(request: AnalyzeRequest):
+async def export_analysis_pdf(
+    request: AnalyzeRequest,
+    current_user: dict = Depends(require_permission("analysis:execute"))
+):
     """
     导出分析结果为 PDF（兼容旧接口）
 
@@ -536,7 +681,8 @@ async def export_analysis_pdf_by_sql_id(
     sql_id: str,
     use_llm: bool = True,
     use_rules: bool = True,
-    db_source_id: Optional[str] = None
+    db_source_id: Optional[str] = None,
+    current_user: dict = Depends(require_permission("analysis:execute"))
 ):
     """
     通过 SQL_ID 导出分析结果为 PDF
