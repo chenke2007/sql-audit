@@ -38,6 +38,65 @@
         /* highlight.js 自定义 */
         .hljs { background: #1e1e1e; border-radius: 0.5rem; padding: 1rem; }
 
+        /* ===== 用户与权限管理 - Side Panel 侧边详情面板 ===== */
+        .side-panel-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(0, 0, 0, 0.25);
+            backdrop-filter: blur(4px);
+            -webkit-backdrop-filter: blur(4px);
+            z-index: 60;
+            opacity: 0;
+            visibility: hidden;
+            transition: opacity 0.3s ease, visibility 0.3s ease;
+        }
+        .side-panel-overlay.active {
+            opacity: 1;
+            visibility: visible;
+        }
+        .side-panel {
+            position: fixed;
+            top: 0;
+            right: 0;
+            bottom: 0;
+            width: 420px;
+            max-width: 90vw;
+            background: rgba(255, 255, 255, 0.92);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border-left: 1px solid rgba(0, 0, 0, 0.06);
+            box-shadow: -8px 0 32px rgba(0, 0, 0, 0.08);
+            z-index: 61;
+            transform: translateX(100%);
+            transition: transform 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+            overflow-y: auto;
+        }
+        .side-panel.active {
+            transform: translateX(0);
+        }
+        .role-tag-interactive {
+            cursor: pointer;
+            transition: all 0.15s ease;
+        }
+        .role-tag-interactive:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 2px 8px rgba(59, 130, 246, 0.25);
+        }
+
+        /* ===== 侧边栏子菜单 ===== */
+        .sidebar-submenu {
+            overflow: hidden;
+            max-height: 0;
+            transition: max-height 0.25s ease;
+        }
+        .sidebar-submenu.expanded {
+            max-height: 120px;
+        }
+        .sidebar-subitem {
+            padding-left: 2.75rem;
+            font-size: 0.8125rem;
+        }
+
         /* ===== 移动端响应式布局 ===== */
         /* 小屏幕下侧边栏样式 */
         @media (max-width: 767px) {
@@ -122,9 +181,6 @@
                         {{ loggingIn ? '登录中...' : '登录' }}
                     </button>
                 </div>
-                <div class="mt-6 text-center text-xs text-gray-400">
-                    默认管理员: admin / admin123
-                </div>
             </div>
         </div>
 
@@ -152,7 +208,7 @@
                     <div class="flex items-center gap-4">
                         <span class="text-gray-500 text-sm">v1.3.0</span>
                         <!-- User Menu -->
-                        <div class="relative">
+                        <div ref="userMenuRef" class="relative">
                             <button @click="showUserMenu = !showUserMenu" class="flex items-center gap-2 text-sm text-gray-700 hover:text-gray-900 px-3 py-1.5 rounded-lg hover:bg-gray-100">
                                 <svg class="w-5 h-5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"></path>
@@ -206,19 +262,64 @@
                 ></div>
 
                 <!-- Sidebar - Fixed -->
-                <nav class="sidebar-nav w-48 flex-shrink-0 bg-white border-r overflow-y-auto" :class="{ open: sidebarOpen }">
-                    <div class="p-2">
-                        <button
-                            v-for="item in visibleMenuItems"
-                            :key="item.key"
-                            @click="handleMenuClick(item.key)"
-                            :class="['w-full text-left px-4 py-3 flex items-center gap-3 menu-transition rounded-lg', activeMenu === item.key ? 'bg-blue-50 text-blue-600' : 'text-gray-600 hover:bg-gray-50']"
-                        >
-                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" :d="item.icon"></path>
-                            </svg>
-                            {{ item.label }}
-                        </button>
+                <nav class="sidebar-nav w-52 flex-shrink-0 bg-white border-r overflow-y-auto" :class="{ open: sidebarOpen }">
+                    <div class="p-2 space-y-1">
+                        <!-- Regular menu items -->
+                        <template v-for="item in visibleMenuItems" :key="item.key">
+                            <!-- User & Permission expandable section -->
+                            <template v-if="item.key === 'user_permissions'">
+                                <div>
+                                    <button
+                                        @click="upExpanded = !upExpanded"
+                                        :class="['w-full text-left px-4 py-3 flex items-center gap-3 menu-transition rounded-lg', activeMenu === 'user_permissions' ? 'bg-blue-50 text-blue-600' : 'text-gray-600 hover:bg-gray-50']"
+                                    >
+                                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" :d="item.icon"></path>
+                                        </svg>
+                                        <span class="flex-1">{{ item.label }}</span>
+                                        <svg
+                                            class="w-4 h-4 transition-transform duration-200"
+                                            :class="{ 'rotate-180': upExpanded }"
+                                            fill="none"
+                                            stroke="currentColor"
+                                            viewBox="0 0 24 24"
+                                        >
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
+                                        </svg>
+                                    </button>
+                                    <div class="sidebar-submenu" :class="{ expanded: upExpanded }">
+                                        <button
+                                            @click="handleMenuClick('up_users')"
+                                            :class="['w-full text-left sidebar-subitem py-2.5 flex items-center gap-2 menu-transition rounded-lg', upTab === 'users' && activeMenu === 'user_permissions' ? 'text-blue-600 bg-blue-50/60' : 'text-gray-500 hover:bg-gray-50']"
+                                        >
+                                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"></path>
+                                            </svg>
+                                            用户列表
+                                        </button>
+                                        <button
+                                            @click="handleMenuClick('up_roles')"
+                                            :class="['w-full text-left sidebar-subitem py-2.5 flex items-center gap-2 menu-transition rounded-lg', upTab === 'roles' && activeMenu === 'user_permissions' ? 'text-blue-600 bg-blue-50/60' : 'text-gray-500 hover:bg-gray-50']"
+                                        >
+                                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"></path>
+                                            </svg>
+                                            角色配置
+                                        </button>
+                                    </div>
+                                </div>
+                            </template>
+                            <button
+                                v-else
+                                @click="handleMenuClick(item.key)"
+                                :class="['w-full text-left px-4 py-3 flex items-center gap-3 menu-transition rounded-lg', activeMenu === item.key ? 'bg-blue-50 text-blue-600' : 'text-gray-600 hover:bg-gray-50']"
+                            >
+                                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" :d="item.icon"></path>
+                                </svg>
+                                {{ item.label }}
+                            </button>
+                        </template>
                     </div>
                 </nav>
 
@@ -810,50 +911,382 @@
                         </div>
                     </div>
 
-                    <!-- User Management -->
-                    <div v-if="activeMenu === 'users'" class="space-y-6">
-                        <div class="bg-white rounded-lg shadow-sm p-6">
-                            <div class="flex items-center justify-between mb-4">
-                                <h2 class="text-lg font-semibold">用户管理</h2>
-                                <button @click="openUserModal()" class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center gap-2">
+                    <!-- Unified User & Permission Control Panel -->
+                    <div v-if="activeMenu === 'user_permissions'" class="h-[calc(100vh-64px)] flex flex-col m-4 bg-white rounded-lg shadow-sm overflow-hidden">
+                        <!-- Top Tab Bar -->
+                        <div class="border-b px-6 py-3 flex items-center gap-6 shrink-0">
+                            <button
+                                @click="upTab = 'users'; loadUsers()"
+                                :class="['text-sm font-medium pb-1 border-b-2 transition-colors', upTab === 'users' ? 'text-blue-600 border-blue-600' : 'text-gray-500 border-transparent hover:text-gray-700']"
+                            >
+                                用户列表
+                            </button>
+                            <button
+                                @click="upTab = 'roles'; loadRolesList(); loadUsers()"
+                                :class="['text-sm font-medium pb-1 border-b-2 transition-colors', upTab === 'roles' ? 'text-blue-600 border-blue-600' : 'text-gray-500 border-transparent hover:text-gray-700']"
+                            >
+                                角色配置
+                            </button>
+                        </div>
+
+                        <!-- State A: User List -->
+                        <div v-if="upTab === 'users'" class="flex-1 overflow-y-auto">
+                            <div class="flex items-center justify-between p-6 border-b">
+                                <h2 class="text-lg font-semibold">用户列表</h2>
+                                <button @click="openUserModal()" class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center gap-2 text-sm">
                                     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path></svg>
                                     新增用户
                                 </button>
                             </div>
-                            <div v-if="loadingUsers" class="text-center py-8 text-gray-500">加载中...</div>
+                            <div v-if="loadingUsers" class="text-center py-12 text-gray-500">
+                                <svg class="animate-spin h-6 w-6 mx-auto mb-2 text-gray-400" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                                加载中...
+                            </div>
                             <div v-else class="overflow-x-auto">
                                 <table class="w-full text-sm">
                                     <thead class="bg-gray-50">
                                         <tr>
-                                            <th class="px-4 py-2 text-left">ID</th>
-                                            <th class="px-4 py-2 text-left">用户名</th>
-                                            <th class="px-4 py-2 text-left">姓名</th>
-                                            <th class="px-4 py-2 text-left">邮箱</th>
-                                            <th class="px-4 py-2 text-left">角色</th>
-                                            <th class="px-4 py-2 text-left">状态</th>
-                                            <th class="px-4 py-2 text-left">操作</th>
+                                            <th class="px-5 py-3 text-left font-medium text-gray-600">ID</th>
+                                            <th class="px-5 py-3 text-left font-medium text-gray-600">用户名</th>
+                                            <th class="px-5 py-3 text-left font-medium text-gray-600">姓名</th>
+                                            <th class="px-5 py-3 text-left font-medium text-gray-600">邮箱</th>
+                                            <th class="px-5 py-3 text-left font-medium text-gray-600">角色</th>
+                                            <th class="px-5 py-3 text-left font-medium text-gray-600">状态</th>
+                                            <th class="px-5 py-3 text-left font-medium text-gray-600">操作</th>
                                         </tr>
                                     </thead>
                                     <tbody>
-                                        <tr v-for="user in users" :key="user.id" class="border-t">
-                                            <td class="px-4 py-2">{{ user.id }}</td>
-                                            <td class="px-4 py-2 font-medium">{{ user.username }}</td>
-                                            <td class="px-4 py-2">{{ user.real_name || '-' }}</td>
-                                            <td class="px-4 py-2">{{ user.email || '-' }}</td>
-                                            <td class="px-4 py-2">
-                                                <span v-for="role in user.roles" :key="role" class="px-2 py-0.5 bg-blue-100 text-blue-700 rounded text-xs mr-1">{{ role }}</span>
+                                        <tr v-for="user in users" :key="user.id" class="border-t hover:bg-gray-50/60 transition-colors">
+                                            <td class="px-5 py-3 text-gray-500">{{ user.id }}</td>
+                                            <td class="px-5 py-3 font-medium text-gray-900">{{ user.username }}</td>
+                                            <td class="px-5 py-3 text-gray-600">{{ user.real_name || '-' }}</td>
+                                            <td class="px-5 py-3 text-gray-500">{{ user.email || '-' }}</td>
+                                            <td class="px-5 py-3">
+                                                <span
+                                                    v-for="role in user.roles"
+                                                    :key="role"
+                                                    @click="openRoleSidePanel(role)"
+                                                    class="role-tag-interactive inline-flex items-center gap-1 px-2.5 py-1 bg-blue-50 text-blue-700 rounded-md text-xs mr-1.5 font-medium border border-blue-100"
+                                                    title="点击查看角色详情"
+                                                >
+                                                    {{ role }}
+                                                    <svg class="w-3 h-3 opacity-60" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                                                </span>
+                                                <span v-if="!user.roles || user.roles.length === 0" class="text-xs text-gray-400">-</span>
                                             </td>
-                                            <td class="px-4 py-2">
-                                                <span :class="['px-2 py-0.5 rounded text-xs', user.is_active ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500']">{{ user.is_active ? '启用' : '禁用' }}</span>
+                                            <td class="px-5 py-3">
+                                                <span :class="['px-2.5 py-1 rounded-md text-xs font-medium', user.is_active ? 'bg-green-50 text-green-700 border border-green-100' : 'bg-gray-100 text-gray-500 border border-gray-200']">{{ user.is_active ? '启用' : '禁用' }}</span>
                                             </td>
-                                            <td class="px-4 py-2 flex gap-2">
-                                                <button @click="openUserModal(user)" class="text-blue-600 hover:text-blue-800 text-sm">编辑</button>
-                                                <button @click="resetUserPassword(user)" class="text-orange-600 hover:text-orange-800 text-sm">重置密码</button>
-                                                <button v-if="user.id !== currentUser.id" @click="disableUser(user)" class="text-red-600 hover:text-red-800 text-sm">禁用</button>
+                                            <td class="px-5 py-3">
+                                                <div class="flex items-center gap-3">
+                                                    <button @click="openUserModal(user)" class="text-blue-600 hover:text-blue-800 text-sm font-medium">编辑</button>
+                                                    <button @click="resetUserPassword(user)" class="text-orange-600 hover:text-orange-800 text-sm font-medium">重置密码</button>
+                                                    <button v-if="user.id !== currentUser.id" @click="disableUser(user)" class="text-red-600 hover:text-red-800 text-sm font-medium">禁用</button>
+                                                </div>
                                             </td>
                                         </tr>
                                     </tbody>
                                 </table>
+                            </div>
+                        </div>
+
+                        <!-- State B: Role Configuration -->
+                        <div v-if="upTab === 'roles'" class="flex-1 flex overflow-hidden">
+                            <!-- Left: Role List -->
+                            <div class="w-72 border-r flex flex-col shrink-0">
+                                <div class="p-4 border-b">
+                                    <h2 class="text-base font-semibold text-gray-800">角色列表</h2>
+                                </div>
+                                <div class="p-3">
+                                    <div class="relative">
+                                        <input v-model="roleSearchQuery" type="text" placeholder="搜索角色名称..." class="w-full pl-9 pr-3 py-2 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                        <svg class="w-4 h-4 text-gray-400 absolute left-3 top-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
+                                    </div>
+                                </div>
+                                <div class="flex-1 overflow-y-auto px-3 pb-3 space-y-2">
+                                    <div v-if="loadingRoles" class="text-center py-8 text-gray-500 text-sm">加载中...</div>
+                                    <template v-else>
+                                        <div v-for="role in filteredRoles" :key="role.id"
+                                             @click="selectRole(role)"
+                                             :class="['p-3 rounded-lg cursor-pointer transition-colors border', selectedRole?.id === role.id ? 'bg-blue-50 border-blue-200' : 'hover:bg-gray-50 border-transparent']">
+                                            <div class="flex items-center gap-3">
+                                                <div :class="['w-10 h-10 rounded-full flex items-center justify-center text-white font-bold text-sm shrink-0', getRoleAvatarClass(role.name)]">
+                                                    {{ role.name.charAt(0).toUpperCase() }}
+                                                </div>
+                                                <div class="flex-1 min-w-0">
+                                                    <div class="flex items-center gap-2">
+                                                        <span class="font-medium text-sm text-gray-900 truncate">{{ role.name }}</span>
+                                                        <span :class="['text-xs px-1.5 py-0.5 rounded shrink-0', getRoleTagClass(role.name)]">{{ getRoleTag(role.name) }}</span>
+                                                    </div>
+                                                    <p class="text-xs text-gray-500 truncate mt-0.5">{{ role.description || '无描述' }}</p>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div v-if="filteredRoles.length === 0" class="text-center py-8 text-gray-400 text-sm">未找到匹配角色</div>
+                                    </template>
+                                </div>
+                                <div class="p-3 border-t">
+                                    <button @click="openRoleModal()" class="w-full py-2 text-sm text-blue-600 bg-blue-50 rounded-lg hover:bg-blue-100 flex items-center justify-center gap-1">
+                                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path></svg>
+                                        创建新角色
+                                    </button>
+                                </div>
+                            </div>
+
+                            <!-- Right: Role Detail -->
+                            <div class="flex-1 bg-gray-50 overflow-y-auto">
+                                <div v-if="!selectedRole" class="flex items-center justify-center h-full text-gray-400">
+                                    <div class="text-center">
+                                        <svg class="w-12 h-12 mx-auto mb-3 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"></path></svg>
+                                        <p>请从左侧选择一个角色</p>
+                                    </div>
+                                </div>
+                                <div v-else class="p-6 space-y-6 max-w-5xl">
+                                    <!-- Role Header -->
+                                    <div class="bg-white rounded-lg shadow-sm p-6">
+                                        <div class="flex items-start justify-between">
+                                            <div class="flex items-center gap-4">
+                                                <div :class="['w-14 h-14 rounded-xl flex items-center justify-center text-white font-bold text-xl shrink-0', getRoleAvatarClass(selectedRole.name)]">
+                                                    {{ selectedRole.name.charAt(0).toUpperCase() }}
+                                                </div>
+                                                <div>
+                                                    <div class="flex items-center gap-2">
+                                                        <h2 class="text-xl font-semibold text-gray-900">{{ selectedRole.name }}</h2>
+                                                        <span :class="['text-xs px-2 py-0.5 rounded', getRoleTagClass(selectedRole.name)]">{{ getRoleTag(selectedRole.name) }}</span>
+                                                    </div>
+                                                    <p class="text-sm text-gray-500 mt-1">{{ selectedRole.description || '暂无描述' }}</p>
+                                                </div>
+                                            </div>
+                                            <div class="flex items-center gap-2">
+                                                <button @click="openRolePermissionModal(selectedRole)" class="px-3 py-1.5 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center gap-1">
+                                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"></path></svg>
+                                                    配置权限
+                                                </button>
+                                                <button @click="openRoleModal(selectedRole)" class="px-3 py-1.5 text-sm border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 flex items-center gap-1">
+                                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path></svg>
+                                                    编辑
+                                                </button>
+                                                <button @click="deleteRole(selectedRole)" class="px-3 py-1.5 text-sm border border-red-200 text-red-600 rounded-lg hover:bg-red-50 flex items-center gap-1">
+                                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
+                                                    删除
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <!-- Permission Details -->
+                                    <div class="bg-white rounded-lg shadow-sm p-6">
+                                        <h3 class="text-base font-semibold text-gray-800 mb-4">权限详情</h3>
+                                        <div v-if="!selectedRole.permissions || selectedRole.permissions.length === 0" class="text-sm text-gray-400">暂无权限</div>
+                                        <div v-else class="space-y-4">
+                                            <div v-for="(group, idx) in groupedPermissions" :key="idx" class="flex items-start gap-4">
+                                                <div class="w-28 shrink-0 flex items-center gap-2 text-sm text-gray-600">
+                                                    <svg class="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" :d="group.icon"></path>
+                                                    </svg>
+                                                    {{ group.label }}
+                                                </div>
+                                                <div class="flex flex-wrap gap-2">
+                                                    <span v-for="perm in group.perms" :key="perm" class="px-2 py-1 bg-blue-50 text-blue-700 rounded text-xs font-mono border border-blue-100">{{ perm }}</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <!-- Assigned Users (Reverse Lookup) -->
+                                    <div class="bg-white rounded-lg shadow-sm p-6">
+                                        <div class="flex items-center justify-between mb-4">
+                                            <h3 class="text-base font-semibold text-gray-800">已分配用户列表</h3>
+                                            <span class="text-xs text-gray-500 bg-gray-100 px-2 py-1 rounded">{{ usersBySelectedRole.length }} 位用户</span>
+                                        </div>
+                                        <div v-if="usersBySelectedRole.length === 0" class="text-sm text-gray-400 py-4">暂无用户分配此角色</div>
+                                        <div v-else class="overflow-x-auto">
+                                            <table class="w-full text-sm">
+                                                <thead class="bg-gray-50 text-gray-600">
+                                                    <tr>
+                                                        <th class="px-4 py-3 text-left font-medium text-xs uppercase tracking-wider">用户名</th>
+                                                        <th class="px-4 py-3 text-left font-medium text-xs uppercase tracking-wider">姓名</th>
+                                                        <th class="px-4 py-3 text-left font-medium text-xs uppercase tracking-wider">状态</th>
+                                                        <th class="px-4 py-3 text-left font-medium text-xs uppercase tracking-wider">操作</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody>
+                                                    <tr v-for="u in usersBySelectedRole" :key="u.id" class="border-t hover:bg-gray-50">
+                                                        <td class="px-4 py-3 font-medium text-gray-900">{{ u.username }}</td>
+                                                        <td class="px-4 py-3 text-gray-600">{{ u.real_name || '-' }}</td>
+                                                        <td class="px-4 py-3">
+                                                            <span :class="['px-2 py-0.5 rounded text-xs font-medium', u.is_active ? 'bg-green-50 text-green-700 border border-green-100' : 'bg-gray-100 text-gray-500 border border-gray-200']">{{ u.is_active ? '启用' : '禁用' }}</span>
+                                                        </td>
+                                                        <td class="px-4 py-3">
+                                                            <div class="flex items-center gap-2">
+                                                                <button @click="openUserModal(u)" class="text-blue-600 hover:text-blue-800 text-sm">编辑</button>
+                                                                <button @click="upTab = 'users'" class="text-gray-400 hover:text-gray-600 text-sm" title="在用户列表中查看">查看</button>
+                                                            </div>
+                                                        </td>
+                                                    </tr>
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    </div>
+
+                                    <!-- Datasource Permissions -->
+                                    <div class="bg-white rounded-lg shadow-sm p-6">
+                                        <div class="flex items-center justify-between mb-4">
+                                            <h3 class="text-base font-semibold text-gray-800">数据库权限分配</h3>
+                                            <div class="flex items-center gap-2">
+                                                <div v-if="showDsAssignForm" class="flex items-center gap-2">
+                                                    <select v-model="dsAssignSourceId" class="px-3 py-1.5 border rounded-lg text-sm">
+                                                        <option value="">选择数据源</option>
+                                                        <option v-for="source in availableDbSourcesForRole" :key="source.id" :value="source.id">{{ source.name }}</option>
+                                                    </select>
+                                                    <button @click="assignDsToSelectedRole" :disabled="!dsAssignSourceId" class="px-3 py-1.5 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-300">分配</button>
+                                                    <button @click="showDsAssignForm = false; dsAssignSourceId = ''" class="px-3 py-1.5 text-sm text-gray-600 hover:text-gray-800">取消</button>
+                                                </div>
+                                                <button v-else @click="showDsAssignForm = true" class="px-3 py-1.5 text-sm bg-blue-50 text-blue-600 rounded-lg hover:bg-blue-100">权限管理</button>
+                                                <button @click="showAllDsPermModal = true" class="px-3 py-1.5 text-sm border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50">查看分配记录</button>
+                                            </div>
+                                        </div>
+                                        <div v-if="loadingRoleDsPermissions" class="text-center py-4 text-gray-500 text-sm">加载中...</div>
+                                        <div v-else class="overflow-x-auto">
+                                            <table class="w-full text-sm">
+                                                <thead class="bg-gray-50 text-gray-600">
+                                                    <tr>
+                                                        <th class="px-4 py-3 text-left font-medium">数据源名称</th>
+                                                        <th class="px-4 py-3 text-left font-medium">描述</th>
+                                                        <th class="px-4 py-3 text-left font-medium">操作</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody>
+                                                    <tr v-for="(dp, i) in paginatedRoleDsPermissions" :key="i" class="border-t hover:bg-gray-50">
+                                                        <td class="px-4 py-3 font-medium text-gray-900">{{ dp.db_source_name || dp.db_source_id }}</td>
+                                                        <td class="px-4 py-3 text-gray-500">{{ dp.description || '-' }}</td>
+                                                        <td class="px-4 py-3">
+                                                            <button @click="revokeDatasourcePermission(dp.role_id, dp.db_source_id)" class="text-red-600 hover:text-red-800 text-sm px-2 py-1 rounded hover:bg-red-50">撤销</button>
+                                                        </td>
+                                                    </tr>
+                                                    <tr v-if="roleDsPermissions.length === 0">
+                                                        <td colspan="3" class="px-4 py-8 text-center text-gray-400">暂无数据库权限分配</td>
+                                                    </tr>
+                                                </tbody>
+                                            </table>
+                                            <div v-if="roleDsPermissions.length > roleDsPageSize" class="flex items-center justify-end gap-2 mt-4 text-sm">
+                                                <span class="text-gray-500">共 {{ roleDsPermissions.length }} 条</span>
+                                                <button @click="roleDsPage = Math.max(1, roleDsPage - 1)" :disabled="roleDsPage <= 1" class="px-2 py-1 border rounded hover:bg-gray-50 disabled:opacity-30">&lt;</button>
+                                                <span class="px-3 py-1 bg-blue-600 text-white rounded">{{ roleDsPage }}</span>
+                                                <button @click="roleDsPage = Math.min(roleDsTotalPages, roleDsPage + 1)" :disabled="roleDsPage >= roleDsTotalPages" class="px-2 py-1 border rounded hover:bg-gray-50 disabled:opacity-30">&gt;</button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- All Datasource Permissions Modal -->
+                            <div v-if="showAllDsPermModal" class="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+                                <div class="bg-white rounded-lg shadow-lg p-6 w-full max-w-3xl mx-4 max-h-[80vh] flex flex-col">
+                                    <div class="flex items-center justify-between mb-4">
+                                        <h3 class="text-lg font-semibold">数据源权限分配记录</h3>
+                                        <button @click="showAllDsPermModal = false" class="text-gray-400 hover:text-gray-600">
+                                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                                        </button>
+                                    </div>
+                                    <div class="flex gap-4 mb-4">
+                                        <select v-model="dsPermRoleId" class="px-3 py-2 border rounded-lg text-sm">
+                                            <option value="">选择角色</option>
+                                            <option v-for="role in rolesList" :key="role.id" :value="role.id">{{ role.name }}</option>
+                                        </select>
+                                        <select v-model="dsPermSourceId" class="px-3 py-2 border rounded-lg text-sm">
+                                            <option value="">选择数据源</option>
+                                            <option v-for="source in dbSources" :key="source.id" :value="source.id">{{ source.name }}</option>
+                                        </select>
+                                        <button @click="assignDatasourcePermission" :disabled="!dsPermRoleId || !dsPermSourceId" class="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:bg-gray-300 text-sm">分配</button>
+                                    </div>
+                                    <div class="flex-1 overflow-y-auto">
+                                        <table class="w-full text-sm">
+                                            <thead class="bg-gray-50">
+                                                <tr>
+                                                    <th class="px-4 py-2 text-left">角色</th>
+                                                    <th class="px-4 py-2 text-left">数据源</th>
+                                                    <th class="px-4 py-2 text-left">操作</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                <tr v-for="(dp, i) in datasourcePermissions" :key="i" class="border-t">
+                                                    <td class="px-4 py-2">{{ dp.role_name }}</td>
+                                                    <td class="px-4 py-2">{{ dp.db_source_name || dp.db_source_id }}</td>
+                                                    <td class="px-4 py-2">
+                                                        <button @click="revokeDatasourcePermission(dp.role_id, dp.db_source_id)" class="text-red-600 hover:text-red-800 text-sm">撤销</button>
+                                                    </td>
+                                                </tr>
+                                                <tr v-if="datasourcePermissions.length === 0">
+                                                    <td colspan="3" class="px-4 py-4 text-center text-gray-500">暂无数据源权限分配</td>
+                                                </tr>
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Role Detail Side Panel (slides from right) -->
+                        <div class="side-panel-overlay" :class="{ active: showRoleSidePanel }" @click="closeRoleSidePanel"></div>
+                        <div class="side-panel" :class="{ active: showRoleSidePanel }">
+                            <div v-if="sidePanelRole" class="p-6">
+                                <!-- Panel Header -->
+                                <div class="flex items-center justify-between mb-6">
+                                    <h3 class="text-lg font-semibold text-gray-800">角色详情</h3>
+                                    <button @click="closeRoleSidePanel" class="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-gray-600 transition-colors">
+                                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                                    </button>
+                                </div>
+
+                                <!-- Role Identity Card -->
+                                <div class="flex items-center gap-4 mb-6 p-4 bg-gray-50/80 rounded-xl border border-gray-100">
+                                    <div :class="['w-12 h-12 rounded-xl flex items-center justify-center text-white font-bold text-lg shrink-0', getRoleAvatarClass(sidePanelRole.name)]">
+                                        {{ sidePanelRole.name.charAt(0).toUpperCase() }}
+                                    </div>
+                                    <div>
+                                        <div class="flex items-center gap-2">
+                                            <span class="font-semibold text-gray-900">{{ sidePanelRole.name }}</span>
+                                            <span :class="['text-xs px-1.5 py-0.5 rounded', getRoleTagClass(sidePanelRole.name)]">{{ getRoleTag(sidePanelRole.name) }}</span>
+                                        </div>
+                                        <p class="text-sm text-gray-500 mt-0.5">{{ sidePanelRole.description || '暂无描述' }}</p>
+                                    </div>
+                                </div>
+
+                                <!-- Permissions Section -->
+                                <div class="mb-6">
+                                    <h4 class="text-sm font-semibold text-gray-700 mb-3 flex items-center gap-2">
+                                        <svg class="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"></path></svg>
+                                        权限列表
+                                    </h4>
+                                    <div v-if="!sidePanelRole.permissions || sidePanelRole.permissions.length === 0" class="text-sm text-gray-400 py-2">暂无权限</div>
+                                    <div v-else class="space-y-3">
+                                        <div v-for="(group, idx) in sidePanelGroupedPermissions" :key="idx" class="p-3 bg-gray-50/60 rounded-lg border border-gray-100">
+                                            <div class="flex items-center gap-2 text-sm font-medium text-gray-700 mb-2">
+                                                <svg class="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" :d="group.icon"></path>
+                                                </svg>
+                                                {{ group.label }}
+                                            </div>
+                                            <div class="flex flex-wrap gap-1.5">
+                                                <span v-for="perm in group.perms" :key="perm" class="px-2 py-0.5 bg-white text-blue-700 rounded text-xs font-mono border border-blue-100">{{ perm }}</span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- Quick Actions -->
+                                <div class="flex gap-2 pt-4 border-t">
+                                    <button @click="closeRoleSidePanel(); upTab = 'roles'; selectRole(sidePanelRole)" class="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-medium">
+                                        前往角色配置
+                                    </button>
+                                    <button @click="closeRoleSidePanel" class="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 text-sm font-medium">
+                                        关闭
+                                    </button>
+                                </div>
+                            </div>
+                            <div v-else class="flex items-center justify-center h-full text-gray-400">
+                                <svg class="animate-spin h-6 w-6" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
                             </div>
                         </div>
                     </div>
@@ -904,203 +1337,6 @@
                         </div>
                     </div>
 
-                    <!-- Role Management -->
-                    <div v-if="activeMenu === 'roles'" class="h-[calc(100vh-64px)] flex">
-                        <!-- Left Sidebar: Role List -->
-                        <div class="w-72 bg-white border-r flex flex-col shrink-0">
-                            <div class="p-4 border-b">
-                                <h2 class="text-base font-semibold text-gray-800">角色列表</h2>
-                            </div>
-                            <div class="p-3">
-                                <div class="relative">
-                                    <input v-model="roleSearchQuery" type="text" placeholder="搜索角色名称..." class="w-full pl-9 pr-3 py-2 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
-                                    <svg class="w-4 h-4 text-gray-400 absolute left-3 top-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
-                                </div>
-                            </div>
-                            <div class="flex-1 overflow-y-auto px-3 pb-3 space-y-2">
-                                <div v-if="loadingRoles" class="text-center py-8 text-gray-500 text-sm">加载中...</div>
-                                <template v-else>
-                                    <div v-for="role in filteredRoles" :key="role.id"
-                                         @click="selectRole(role)"
-                                         :class="['p-3 rounded-lg cursor-pointer transition-colors border', selectedRole?.id === role.id ? 'bg-blue-50 border-blue-200' : 'hover:bg-gray-50 border-transparent']">
-                                        <div class="flex items-center gap-3">
-                                            <div :class="['w-10 h-10 rounded-full flex items-center justify-center text-white font-bold text-sm shrink-0', getRoleAvatarClass(role.name)]">
-                                                {{ role.name.charAt(0).toUpperCase() }}
-                                            </div>
-                                            <div class="flex-1 min-w-0">
-                                                <div class="flex items-center gap-2">
-                                                    <span class="font-medium text-sm text-gray-900 truncate">{{ role.name }}</span>
-                                                    <span :class="['text-xs px-1.5 py-0.5 rounded shrink-0', getRoleTagClass(role.name)]">{{ getRoleTag(role.name) }}</span>
-                                                </div>
-                                                <p class="text-xs text-gray-500 truncate mt-0.5">{{ role.description || '无描述' }}</p>
-                                            </div>
-                                        </div>
-                                    </div>
-                                    <div v-if="filteredRoles.length === 0" class="text-center py-8 text-gray-400 text-sm">未找到匹配角色</div>
-                                </template>
-                            </div>
-                            <div class="p-3 border-t">
-                                <button @click="openRoleModal()" class="w-full py-2 text-sm text-blue-600 bg-blue-50 rounded-lg hover:bg-blue-100 flex items-center justify-center gap-1">
-                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path></svg>
-                                    创建新角色
-                                </button>
-                            </div>
-                        </div>
-
-                        <!-- Right Panel: Role Detail -->
-                        <div class="flex-1 bg-gray-50 overflow-y-auto">
-                            <div v-if="!selectedRole" class="flex items-center justify-center h-full text-gray-400">
-                                请从左侧选择一个角色
-                            </div>
-                            <div v-else class="p-6 space-y-6 max-w-5xl">
-                                <!-- Role Header -->
-                                <div class="bg-white rounded-lg shadow-sm p-6">
-                                    <div class="flex items-start justify-between">
-                                        <div class="flex items-center gap-4">
-                                            <div :class="['w-14 h-14 rounded-xl flex items-center justify-center text-white font-bold text-xl shrink-0', getRoleAvatarClass(selectedRole.name)]">
-                                                {{ selectedRole.name.charAt(0).toUpperCase() }}
-                                            </div>
-                                            <div>
-                                                <div class="flex items-center gap-2">
-                                                    <h2 class="text-xl font-semibold text-gray-900">{{ selectedRole.name }}</h2>
-                                                    <span :class="['text-xs px-2 py-0.5 rounded', getRoleTagClass(selectedRole.name)]">{{ getRoleTag(selectedRole.name) }}</span>
-                                                </div>
-                                                <p class="text-sm text-gray-500 mt-1">{{ selectedRole.description || '暂无描述' }}</p>
-                                            </div>
-                                        </div>
-                                        <div class="flex items-center gap-2">
-                                            <button @click="openRolePermissionModal(selectedRole)" class="px-3 py-1.5 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center gap-1">
-                                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"></path></svg>
-                                                配置权限
-                                            </button>
-                                            <button @click="openRoleModal(selectedRole)" class="px-3 py-1.5 text-sm border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 flex items-center gap-1">
-                                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path></svg>
-                                                编辑
-                                            </button>
-                                            <button @click="deleteRole(selectedRole)" class="px-3 py-1.5 text-sm border border-red-200 text-red-600 rounded-lg hover:bg-red-50 flex items-center gap-1">
-                                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
-                                                删除
-                                            </button>
-                                        </div>
-                                    </div>
-                                </div>
-
-                                <!-- Permission Details -->
-                                <div class="bg-white rounded-lg shadow-sm p-6">
-                                    <h3 class="text-base font-semibold text-gray-800 mb-4">权限详情</h3>
-                                    <div v-if="!selectedRole.permissions || selectedRole.permissions.length === 0" class="text-sm text-gray-400">暂无权限</div>
-                                    <div v-else class="space-y-4">
-                                        <div v-for="(group, idx) in groupedPermissions" :key="idx" class="flex items-start gap-4">
-                                            <div class="w-28 shrink-0 flex items-center gap-2 text-sm text-gray-600">
-                                                <svg class="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" :d="group.icon"></path>
-                                                </svg>
-                                                {{ group.label }}
-                                            </div>
-                                            <div class="flex flex-wrap gap-2">
-                                                <span v-for="perm in group.perms" :key="perm" class="px-2 py-1 bg-blue-50 text-blue-700 rounded text-xs font-mono border border-blue-100">{{ perm }}</span>
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
-
-                                <!-- Datasource Permissions -->
-                                <div class="bg-white rounded-lg shadow-sm p-6">
-                                    <div class="flex items-center justify-between mb-4">
-                                        <h3 class="text-base font-semibold text-gray-800">数据库权限分配</h3>
-                                        <div class="flex items-center gap-2">
-                                            <div v-if="showDsAssignForm" class="flex items-center gap-2">
-                                                <select v-model="dsAssignSourceId" class="px-3 py-1.5 border rounded-lg text-sm">
-                                                    <option value="">选择数据源</option>
-                                                    <option v-for="source in availableDbSourcesForRole" :key="source.id" :value="source.id">{{ source.name }}</option>
-                                                </select>
-                                                <button @click="assignDsToSelectedRole" :disabled="!dsAssignSourceId" class="px-3 py-1.5 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-300">分配</button>
-                                                <button @click="showDsAssignForm = false; dsAssignSourceId = ''" class="px-3 py-1.5 text-sm text-gray-600 hover:text-gray-800">取消</button>
-                                            </div>
-                                            <button v-else @click="showDsAssignForm = true" class="px-3 py-1.5 text-sm bg-blue-50 text-blue-600 rounded-lg hover:bg-blue-100">权限管理</button>
-                                            <button @click="showAllDsPermModal = true" class="px-3 py-1.5 text-sm border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50">查看分配记录</button>
-                                        </div>
-                                    </div>
-                                    <div v-if="loadingRoleDsPermissions" class="text-center py-4 text-gray-500 text-sm">加载中...</div>
-                                    <div v-else class="overflow-x-auto">
-                                        <table class="w-full text-sm">
-                                            <thead class="bg-gray-50 text-gray-600">
-                                                <tr>
-                                                    <th class="px-4 py-3 text-left font-medium">数据源名称</th>
-                                                    <th class="px-4 py-3 text-left font-medium">描述</th>
-                                                    <th class="px-4 py-3 text-left font-medium">操作</th>
-                                                </tr>
-                                            </thead>
-                                            <tbody>
-                                                <tr v-for="(dp, i) in paginatedRoleDsPermissions" :key="i" class="border-t hover:bg-gray-50">
-                                                    <td class="px-4 py-3 font-medium text-gray-900">{{ dp.db_source_name || dp.db_source_id }}</td>
-                                                    <td class="px-4 py-3 text-gray-500">{{ dp.description || '-' }}</td>
-                                                    <td class="px-4 py-3">
-                                                        <button @click="revokeDatasourcePermission(dp.role_id, dp.db_source_id)" class="text-red-600 hover:text-red-800 text-sm px-2 py-1 rounded hover:bg-red-50">撤销</button>
-                                                    </td>
-                                                </tr>
-                                                <tr v-if="roleDsPermissions.length === 0">
-                                                    <td colspan="3" class="px-4 py-8 text-center text-gray-400">暂无数据库权限分配</td>
-                                                </tr>
-                                            </tbody>
-                                        </table>
-                                        <div v-if="roleDsPermissions.length > roleDsPageSize" class="flex items-center justify-end gap-2 mt-4 text-sm">
-                                            <span class="text-gray-500">共 {{ roleDsPermissions.length }} 条</span>
-                                            <button @click="roleDsPage = Math.max(1, roleDsPage - 1)" :disabled="roleDsPage <= 1" class="px-2 py-1 border rounded hover:bg-gray-50 disabled:opacity-30">&lt;</button>
-                                            <span class="px-3 py-1 bg-blue-600 text-white rounded">{{ roleDsPage }}</span>
-                                            <button @click="roleDsPage = Math.min(roleDsTotalPages, roleDsPage + 1)" :disabled="roleDsPage >= roleDsTotalPages" class="px-2 py-1 border rounded hover:bg-gray-50 disabled:opacity-30">&gt;</button>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-
-                        <!-- All Datasource Permissions Modal -->
-                        <div v-if="showAllDsPermModal" class="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-                            <div class="bg-white rounded-lg shadow-lg p-6 w-full max-w-3xl mx-4 max-h-[80vh] flex flex-col">
-                                <div class="flex items-center justify-between mb-4">
-                                    <h3 class="text-lg font-semibold">数据源权限分配记录</h3>
-                                    <button @click="showAllDsPermModal = false" class="text-gray-400 hover:text-gray-600">
-                                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
-                                    </button>
-                                </div>
-                                <div class="flex gap-4 mb-4">
-                                    <select v-model="dsPermRoleId" class="px-3 py-2 border rounded-lg text-sm">
-                                        <option value="">选择角色</option>
-                                        <option v-for="role in rolesList" :key="role.id" :value="role.id">{{ role.name }}</option>
-                                    </select>
-                                    <select v-model="dsPermSourceId" class="px-3 py-2 border rounded-lg text-sm">
-                                        <option value="">选择数据源</option>
-                                        <option v-for="source in dbSources" :key="source.id" :value="source.id">{{ source.name }}</option>
-                                    </select>
-                                    <button @click="assignDatasourcePermission" :disabled="!dsPermRoleId || !dsPermSourceId" class="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:bg-gray-300 text-sm">分配</button>
-                                </div>
-                                <div class="flex-1 overflow-y-auto">
-                                    <table class="w-full text-sm">
-                                        <thead class="bg-gray-50">
-                                            <tr>
-                                                <th class="px-4 py-2 text-left">角色</th>
-                                                <th class="px-4 py-2 text-left">数据源</th>
-                                                <th class="px-4 py-2 text-left">操作</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody>
-                                            <tr v-for="(dp, i) in datasourcePermissions" :key="i" class="border-t">
-                                                <td class="px-4 py-2">{{ dp.role_name }}</td>
-                                                <td class="px-4 py-2">{{ dp.db_source_name || dp.db_source_id }}</td>
-                                                <td class="px-4 py-2">
-                                                    <button @click="revokeDatasourcePermission(dp.role_id, dp.db_source_id)" class="text-red-600 hover:text-red-800 text-sm">撤销</button>
-                                                </td>
-                                            </tr>
-                                            <tr v-if="datasourcePermissions.length === 0">
-                                                <td colspan="3" class="px-4 py-4 text-center text-gray-500">暂无数据源权限分配</td>
-                                            </tr>
-                                        </tbody>
-                                    </table>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
 
                     <!-- Role Permission Modal -->
                     <div v-if="showRolePermissionModal" class="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
@@ -1242,15 +1478,16 @@
     </div>
 
     <script>
-        const { createApp, ref, onMounted, computed, watch } = Vue;
+        const { createApp, ref, onMounted, onUnmounted, computed, watch } = Vue;
 
         createApp({
             setup() {
                 // ========== Auth State ==========
-                const isLoggedIn = ref(false);
+                const isLoggedIn = ref(!!localStorage.getItem('access_token'));
                 const currentUser = ref(null);
                 const accessToken = ref(localStorage.getItem('access_token') || '');
                 const showUserMenu = ref(false);
+                const userMenuRef = ref(null);
                 const loginForm = ref({ username: '', password: '' });
                 const loginError = ref('');
                 const loggingIn = ref(false);
@@ -1346,6 +1583,13 @@
                 const roleForm = ref({ name: '', description: '' });
                 const savingRole = ref(false);
 
+                // Unified User & Permission Panel State
+                const upTab = ref('users');
+                const upExpanded = ref(true);
+                const showRoleSidePanel = ref(false);
+                const sidePanelRole = ref(null);
+                const sidePanelLoading = ref(false);
+
                 // Datasource Permissions
                 const datasourcePermissions = ref([]);
                 const dsPermRoleId = ref('');
@@ -1367,7 +1611,8 @@
                     { key: 'analyze', label: 'SQL 分析', icon: 'M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z', permission: 'analysis:execute' },
                     { key: 'collection', label: 'SQL 采集', icon: 'M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4', permission: 'datasource:use' },
                     { key: 'db_sources', label: '数据源管理', icon: 'M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4', permission: 'datasource:use' },
-                    { key: 'rules', label: '规则配置', icon: 'M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4', permission: 'analysis:execute' }
+                    { key: 'rules', label: '规则配置', icon: 'M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4', permission: 'analysis:execute' },
+                    { key: 'user_permissions', label: '用户与权限', icon: 'M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z', permission: 'user:manage' }
                 ];
 
                 const visibleMenuItems = computed(() => {
@@ -1419,6 +1664,35 @@
                     if (!selectedRole.value) return dbSources.value;
                     const assignedIds = new Set(roleDsPermissions.value.map(dp => dp.db_source_id));
                     return dbSources.value.filter(s => !assignedIds.has(s.id));
+                });
+
+                // Users assigned to the currently selected role (reverse lookup)
+                const usersBySelectedRole = computed(() => {
+                    if (!selectedRole.value) return [];
+                    return users.value.filter(u => u.roles.includes(selectedRole.value.name));
+                });
+
+                // Grouped permissions for the side panel role
+                const sidePanelGroupedPermissions = computed(() => {
+                    if (!sidePanelRole.value || !sidePanelRole.value.permissions) return [];
+                    const permMap = {
+                        'user': { label: '用户管理', icon: 'M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z' },
+                        'role': { label: '角色管理', icon: 'M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z' },
+                        'datasource': { label: '数据源管理', icon: 'M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4' },
+                        'analysis': { label: 'SQL分析', icon: 'M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4' },
+                        'sqlanalyze': { label: 'SQL分析', icon: 'M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4' },
+                        'system': { label: '系统管理', icon: 'M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z M15 12a3 3 0 11-6 0 3 3 0 016 0z' }
+                    };
+                    const groups = {};
+                    for (const perm of sidePanelRole.value.permissions) {
+                        const prefix = perm.split(':')[0];
+                        const info = permMap[prefix] || { label: '其他', icon: 'M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z' };
+                        if (!groups[info.label]) {
+                            groups[info.label] = { label: info.label, icon: info.icon, perms: [] };
+                        }
+                        groups[info.label].perms.push(perm);
+                    }
+                    return Object.values(groups);
                 });
 
                 const inputModes = [
@@ -1902,8 +2176,26 @@
 
                 // Menu click handler
                 const handleMenuClick = (key) => {
-                    activeMenu.value = key;
                     sidebarOpen.value = false;
+                    showUserMenu.value = false;
+
+                    // Unified User & Permission panel sub-menu handling
+                    if (key === 'up_users') {
+                        activeMenu.value = 'user_permissions';
+                        upTab.value = 'users';
+                        upExpanded.value = true;
+                        setTimeout(() => loadUsers(), 0);
+                        return;
+                    }
+                    if (key === 'up_roles') {
+                        activeMenu.value = 'user_permissions';
+                        upTab.value = 'roles';
+                        upExpanded.value = true;
+                        setTimeout(() => { loadRolesList(); loadUsers(); }, 0);
+                        return;
+                    }
+
+                    activeMenu.value = key;
                     if (key === 'rules' && rules.value.length === 0) {
                         setTimeout(() => loadRules(), 0);
                     }
@@ -1913,11 +2205,16 @@
                     if (key === 'history') {
                         setTimeout(() => loadHistory(), 0);
                     }
+                    // Legacy direct routes (kept for compatibility with dropdown menu)
                     if (key === 'users') {
+                        activeMenu.value = 'user_permissions';
+                        upTab.value = 'users';
                         setTimeout(() => loadUsers(), 0);
                     }
                     if (key === 'roles') {
-                        setTimeout(() => loadRolesList(), 0);
+                        activeMenu.value = 'user_permissions';
+                        upTab.value = 'roles';
+                        setTimeout(() => { loadRolesList(); loadUsers(); }, 0);
                     }
                 };
                 const toggleSidebar = () => {
@@ -1968,12 +2265,19 @@
                     }
                 };
 
+                const closeUserMenuOnClickOutside = (e) => {
+                    if (userMenuRef.value && !userMenuRef.value.contains(e.target)) {
+                        showUserMenu.value = false;
+                    }
+                };
+
                 onMounted(async () => {
                     if (typeof hljs !== 'undefined') {
                         hljs.configure({ languages: ['sql'] });
                     }
                     checkHealth();
                     setInterval(checkHealth, 30000);
+                    document.addEventListener('click', closeUserMenuOnClickOutside);
 
                     // Check existing token
                     if (accessToken.value) {
@@ -1990,6 +2294,10 @@
                             doLogout();
                         }
                     }
+                });
+
+                onUnmounted(() => {
+                    document.removeEventListener('click', closeUserMenuOnClickOutside);
                 });
 
                 // DB Source methods
@@ -2244,6 +2552,45 @@
                     } finally {
                         loadingUsers.value = false;
                     }
+                };
+
+                // Side Panel: open role detail panel from user list
+                const openRoleSidePanel = async (roleName) => {
+                    sidePanelRole.value = null;
+                    showRoleSidePanel.value = true;
+                    sidePanelLoading.value = true;
+
+                    // Find role from loaded roles list, or fetch fresh data
+                    let role = rolesList.value.find(r => r.name === roleName);
+                    if (!role) {
+                        // Try to fetch roles if not loaded
+                        try {
+                            const res = await apiFetch('/api/roles');
+                            if (res.ok) {
+                                rolesList.value = await res.json();
+                                role = rolesList.value.find(r => r.name === roleName);
+                            }
+                        } catch (e) {}
+                    }
+
+                    if (role) {
+                        sidePanelRole.value = role;
+                    } else {
+                        // Fallback: create a minimal role object
+                        sidePanelRole.value = {
+                            name: roleName,
+                            description: '',
+                            permissions: []
+                        };
+                    }
+                    sidePanelLoading.value = false;
+                };
+
+                const closeRoleSidePanel = () => {
+                    showRoleSidePanel.value = false;
+                    setTimeout(() => {
+                        sidePanelRole.value = null;
+                    }, 300);
                 };
 
                 const loadAllRoles = async () => {
@@ -2524,6 +2871,10 @@
                                     selectedRole.value = null;
                                 }
                             }
+                        } else if (rolesRes.status === 'fulfilled' && !rolesRes.value.ok) {
+                            const err = await rolesRes.value.json().catch(() => ({}));
+                            showToast(extractErrorMessage(err, '加载角色列表失败'), 'error');
+                            rolesList.value = [];
                         }
                         if (dsRes.status === 'fulfilled' && dsRes.value.ok) {
                             datasourcePermissions.value = await dsRes.value.json();
@@ -2672,7 +3023,12 @@
                     loadRoleDsPermissions, assignDsToSelectedRole,
                     // Datasource Permissions
                     datasourcePermissions, dsPermRoleId, dsPermSourceId,
-                    assignDatasourcePermission, revokeDatasourcePermission
+                    assignDatasourcePermission, revokeDatasourcePermission,
+                    // Unified User & Permission Panel
+                    upTab, upExpanded,
+                    showRoleSidePanel, sidePanelRole, sidePanelLoading,
+                    usersBySelectedRole, sidePanelGroupedPermissions,
+                    openRoleSidePanel, closeRoleSidePanel
                 };
             }
         }).mount('#app');
