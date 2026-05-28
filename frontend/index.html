@@ -1606,6 +1606,10 @@
                 const dsAssignSourceId = ref('');
                 const showAllDsPermModal = ref(false);
 
+                // Idle timeout: 30 minutes of inactivity auto logout
+                const IDLE_TIMEOUT_MS = 30 * 60 * 1000;
+                let idleTimer = null;
+
                 // ========== Menu ==========
                 const menuItems = [
                     { key: 'analyze', label: 'SQL 分析', icon: 'M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z', permission: 'analysis:execute' },
@@ -1805,7 +1809,7 @@
                     }
                 };
 
-                const doLogout = () => {
+                const doLogout = (showMessage = true) => {
                     accessToken.value = '';
                     currentUser.value = null;
                     isLoggedIn.value = false;
@@ -1813,6 +1817,64 @@
                     localStorage.removeItem('refresh_token');
                     activeMenu.value = 'analyze';
                     showUserMenu.value = false;
+
+                    // 清除所有用户相关的数据缓存，防止切换账号后看到其他用户的数据
+                    historyItems.value = [];
+                    historyTotal.value = 0;
+                    historyPage.value = 1;
+                    historyDetail.value = null;
+                    showHistoryDetailModal.value = false;
+                    historyFilter.value = { keyword: '' };
+
+                    users.value = [];
+                    editingUser.value = null;
+                    userForm.value = { username: '', real_name: '', email: '', password: '', role_ids: [], is_active: true };
+
+                    rolesList.value = [];
+                    editingRole.value = null;
+                    roleForm.value = { name: '', description: '' };
+                    selectedRole.value = null;
+                    roleDsPermissions.value = [];
+
+                    datasourcePermissions.value = [];
+                    dbSources.value = [];
+                    collectedSQLs.value = [];
+                    rules.value = [];
+                    analysisResult.value = null;
+
+                    // 清除空闲超时计时器
+                    clearIdleTimeout();
+
+                    if (showMessage) {
+                        showToast('已安全退出', 'info');
+                    }
+                };
+
+                const clearIdleTimeout = () => {
+                    if (idleTimer) {
+                        clearTimeout(idleTimer);
+                        idleTimer = null;
+                    }
+                };
+
+                const resetIdleTimeout = () => {
+                    clearIdleTimeout();
+                    if (!isLoggedIn.value) return;
+                    idleTimer = setTimeout(() => {
+                        showToast('由于长时间未操作，系统已自动退出', 'warning');
+                        doLogout(false);
+                    }, IDLE_TIMEOUT_MS);
+                };
+
+                const startIdleTimeout = () => {
+                    const events = ['mousemove', 'keydown', 'click', 'scroll', 'touchstart'];
+                    const handler = () => resetIdleTimeout();
+                    events.forEach(e => document.addEventListener(e, handler, { passive: true }));
+                    resetIdleTimeout();
+                    return () => {
+                        events.forEach(e => document.removeEventListener(e, handler));
+                        clearIdleTimeout();
+                    };
                 };
 
                 const refreshToken = async () => {
@@ -2279,6 +2341,9 @@
                     setInterval(checkHealth, 30000);
                     document.addEventListener('click', closeUserMenuOnClickOutside);
 
+                    // 启动空闲超时监听
+                    const stopIdleTimeout = startIdleTimeout();
+
                     // Check existing token
                     if (accessToken.value) {
                         const ok = await fetchUserInfo();
@@ -2294,10 +2359,16 @@
                             doLogout();
                         }
                     }
+
+                    // 保存清理函数供 onUnmounted 使用
+                    window.__stopIdleTimeout = stopIdleTimeout;
                 });
 
                 onUnmounted(() => {
                     document.removeEventListener('click', closeUserMenuOnClickOutside);
+                    if (window.__stopIdleTimeout) {
+                        window.__stopIdleTimeout();
+                    }
                 });
 
                 // DB Source methods
