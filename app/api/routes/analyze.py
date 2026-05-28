@@ -33,7 +33,7 @@ router = APIRouter(prefix="/api/analyze", tags=["SQL分析"])
 class AnalyzeRequest(BaseModel):
     """SQL 分析请求"""
     db_source_id: Optional[str] = Field(None, description="数据源ID，不传则使用默认数据源")
-    schema: Optional[str] = Field(None, description="Schema/Owner，不传则使用SQL中指定的schema")
+    schema_name: Optional[str] = Field(None, alias="schema", description="Schema/Owner，不传则使用SQL中指定的schema")
     sql_text: str = Field(..., min_length=1, description="SQL语句文本")
     sql_id: Optional[str] = Field(None, description="可选的SQL ID")
     use_llm: bool = Field(True, description="是否使用LLM分析")
@@ -305,7 +305,7 @@ async def analyze_sql(
         if parsed.tables:
             def _fetch_metadata():
                 return _get_table_metadata(
-                    list(parsed.tables), schema=request.schema, client=client
+                    list(parsed.tables), schema=request.schema_name, client=client
                 )
 
             try:
@@ -395,7 +395,7 @@ async def analyze_sql(
             await save_analysis_history(
                 user_id=current_user["id"],
                 db_source_id=request.db_source_id,
-                schema=request.schema,
+                schema=request.schema_name,
                 sql_text=request.sql_text,
                 sql_id=request.sql_id,
                 input_mode="sql_text",

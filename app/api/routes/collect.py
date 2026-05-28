@@ -32,7 +32,7 @@ class SQLObjectResponse(BaseModel):
     """SQL对象响应 - Oracle性能指标"""
     sql_id: Optional[str] = Field(None, description="SQL标识符")
     sql_text: str = Field(..., description="SQL文本")
-    schema: Optional[str] = Field(None, description="Schema/Parsing Schema Name")
+    schema_name: Optional[str] = Field(None, alias="schema", description="Schema/Parsing Schema Name")
     source: str = Field(..., description="来源: auto_collect, sql_id_query, file_upload")
     execution_stats: Optional[dict] = Field(None, description="执行统计")
     has_execution_plan: bool = Field(False, description="是否有执行计划")
@@ -105,7 +105,7 @@ def sql_object_to_response(obj: SQLObject, truncate_sql: bool = True) -> SQLObje
     return SQLObjectResponse(
         sql_id=obj.sql_id,
         sql_text=sql_text,
-        schema=schema,
+        schema_name=schema,
         source=obj.source,
         execution_stats=stats,
         has_execution_plan=obj.execution_plan is not None,

@@ -57,7 +57,8 @@ class LLMConfig(BaseSettings):
         env_prefix="LLM_",
         env_file=".env",
         env_file_encoding="utf-8",
-        extra="ignore"
+        extra="ignore",
+        protected_namespaces=("settings_",)
     )
 
     base_url: str = Field(

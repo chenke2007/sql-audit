@@ -27,15 +27,6 @@ class TokenResponse(BaseModel):
     expires_in: int
 
 
-class LoginResponse(BaseModel):
-    """登录响应"""
-    access_token: str
-    refresh_token: str
-    token_type: str = "bearer"
-    expires_in: int
-    user: "UserInfo"
-
-
 # ========== 用户模型 ==========
 
 class UserBase(BaseModel):
@@ -75,6 +66,15 @@ class UserInfo(BaseModel):
 class UserDetail(UserInfo):
     """用户详细信息（包含权限）"""
     permissions: List[str] = []
+
+
+class LoginResponse(BaseModel):
+    """登录响应"""
+    access_token: str
+    refresh_token: str
+    token_type: str = "bearer"
+    expires_in: int
+    user: UserInfo
 
 
 class ChangePasswordRequest(BaseModel):
@@ -136,7 +136,7 @@ class DatasourcePermissionInfo(BaseModel):
 class AnalysisHistoryCreate(BaseModel):
     """创建分析历史记录"""
     db_source_id: Optional[str] = None
-    schema: Optional[str] = None
+    schema_name: Optional[str] = Field(default=None, alias="schema")
     sql_text: str
     sql_id: Optional[str] = None
     input_mode: str = "sql_text"
@@ -148,7 +148,7 @@ class AnalysisHistoryItem(BaseModel):
     """分析历史列表项"""
     id: int
     db_source_name: Optional[str] = None
-    schema: Optional[str] = None
+    schema_name: Optional[str] = Field(default=None, alias="schema")
     sql_text: str
     sql_id: Optional[str] = None
     input_mode: str
